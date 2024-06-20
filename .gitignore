@@ -1,0 +1,13 @@
+container/
+working/
+output/
+reference/
+__pycache__/
+*-tmp-*/
+temp/
+
+sample*
+*.slurm
+*.pyc
+*.out
+*.mif

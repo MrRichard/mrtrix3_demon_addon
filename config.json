@@ -1,0 +1,8 @@
+{
+    "account": "ansir-users",
+    "partition": "defq",
+    "time": "03:00:00",
+    "nodes": "1",
+    "cpus": "8",
+    "sif" : "container/mrtrix3_latest.sif"
+}
