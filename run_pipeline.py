@@ -20,7 +20,7 @@ def load_commands(file_path, input_path, output_path, rerun=False):
     for step in data['steps']:
         print(f"- writing step: {step['name']}")
         validation_output = step['validation_output'].replace("OUTPUT", output_path)
-        command = step['cmd'].replace("INPUT", input_path).replace("OUTPUT", output_path).replace("ANAT", matching_files[0])
+        command = step['cmd'].replace("INPUT", input_path).replace("OUTPUT", output_path).replace("ANAT", matching_files[0]).replace("TEMPLATE", 'templates')
         log_file = os.path.join(output_path, f"{step['name']}_log.txt")
         command_with_logging = f"{command} > {log_file} 2>&1"
         if rerun:

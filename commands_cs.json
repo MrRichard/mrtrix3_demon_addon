@@ -1,0 +1,134 @@
+{
+    "steps": [
+    {
+      "name": "step1-mrconvert_dwi",
+      "cmd": "mrconvert INPUT/DTI/FieldMapCorrection/my_images.nii.gz OUTPUT/raw_dwi.mif -fslgrad INPUT/DTI/FieldMapCorrection/A2P_b0.bvec INPUT/DTI/FieldMapCorrection/A2P_b0.bval -force",
+      "validation_output": "OUTPUT/raw_dwi.mif"
+    },
+    {
+      "name": "step2-dwidenoise_raw_dwi", 
+      "cmd": "dwidenoise OUTPUT/raw_dwi.mif OUTPUT/dwi_den.mif -noise OUTPUT/noise.mif -force",
+      "validation_output": "OUTPUT/dwi_den.mif"
+    },
+    {
+      "name": "step3-mrcalc_denoise_residual",
+      "cmd": "mrcalc OUTPUT/raw_dwi.mif OUTPUT/dwi_den.mif -subtract OUTPUT/residual.mif -force",
+      "validation_output": "OUTPUT/residual.mif"
+    },
+    {
+      "name": "step4-dwifslpreproc",
+      "cmd": "dwifslpreproc OUTPUT/dwi_den.mif OUTPUT/dwi_den_preproc.mif -pe_dir AP -rpe_none -eddy_options \"--slm=linear --repol --cnr_maps --residuals\" -force",
+      "validation_output": "OUTPUT/dwi_den_preproc.mif"  
+    },
+    {
+      "name": "step5-dwibiascorrect",
+      "cmd": "dwibiascorrect ants OUTPUT/dwi_den_preproc.mif OUTPUT/dwi_den_preproc_unbiased.mif -bias OUTPUT/bias.mif -force",
+      "validation_output": "OUTPUT/dwi_den_preproc_unbiased.mif"
+    },
+    {
+      "name" : "step6-dwi2mask",
+      "cmd" : "dwi2mask OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/mask.mif -force",
+      "validation_output": "OUTPUT/mask.mif"
+    },
+    {
+      "name": "step7-dwi2response",
+      "cmd": "dwi2response tournier OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/response.txt -mask OUTPUT/mask.mif -force",
+      "validation_output": "OUTPUT/response.txt"
+    },
+    {
+      "name": "step8-dwi2fod",
+      "cmd": "dwi2fod csd OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/response.txt OUTPUT/wmfod.mif -mask OUTPUT/mask.mif -force",
+      "validation_output": "OUTPUT/wmfod.mif"
+    },
+    {
+      "name": "step9-mtnormalise",
+      "cmd": "mtnormalise OUTPUT/wmfod.mif OUTPUT/wmfod_norm.mif -mask OUTPUT/mask.mif",
+      "validation_output": "OUTPUT/wmfod_norm.mif"
+    },
+    {
+      "name": "step10-anat_convert",
+      "cmd" : "mrconvert ANAT OUTPUT/anat.mif -force",
+      "validation_output": "OUTPUT/anat.mif"
+    },
+    {
+      "name" : "step11-5ttgen",
+      "cmd" : "5ttgen fsl OUTPUT/anat.mif OUTPUT/5tt_nocoreg.mif",
+      "validation_output": "OUTPUT/5tt_nocoreg.mif"
+    },
+    {
+      "name" : "step12-dwiextract_b0",
+      "cmd" : "dwiextract OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/dwi_den_prepoc_b0.mif -bzero",
+      "validation_output": "OUTPUT/dwi_den_prepoc_b0.mif"
+    },
+    {
+      "name" : "step13-mrmath_mean_b0",
+      "cmd" : "mrmath OUTPUT/dwi_den_prepoc_b0.mif mean OUTPUT/mean_b0_processed.mif -axis 3",
+      "validation_output": "OUTPUT/mean_b0_processed.mif"
+    },
+    {
+      "name" : "step14-mrconvert_b0_to_FSL",
+      "cmd" : "mrconvert OUTPUT/mean_b0_processed.mif OUTPUT/mean_b0_processed.nii.gz",
+      "validation_output": "OUTPUT/mean_b0_processed.nii.gz"
+    },
+    {
+      "name" : "step15-mrconvert_seg_to_FSL",
+      "cmd" : "mrconvert OUTPUT/5tt_nocoreg.mif OUTPUT/5tt_nocoreg.nii.gz",
+      "validation_output": "OUTPUT/5tt_nocoreg.nii.gz"
+    },
+    {
+      "name" : "step16-fslroi",
+      "cmd" : "fslroi OUTPUT/5tt_nocoreg.nii.gz OUTPUT/5tt_vol0.nii.gz 0 1",
+      "validation_output": "OUTPUT/5tt_vol0.nii.gz"
+    },
+    {
+      "name" : "step17-flirt_coregister",
+      "cmd" : "flirt -in OUTPUT/mean_b0_processed.nii.gz -ref OUTPUT/5tt_vol0.nii.gz -interp nearestneighbour -dof 6 -omat OUTPUT/diff2struct_fsl.mat",
+      "validation_output": "OUTPUT/diff2struct_fsl.mat"
+    },
+    {
+      "name" : "step17.25-flirt_coregister",
+      "cmd" : "transformconvert OUTPUT/diff2struct_fsl.mat OUTPUT/mean_b0_processed.nii.gz OUTPUT/5tt_nocoreg.nii.gz flirt_import OUTPUT/diff2struct_mrtrix.txt",
+      "validation_output": "OUTPUT/diff2struct_mrtrix.txt"
+    },
+    {
+      "name" : "step17.75-mrtransform",
+      "cmd" : "mrtransform OUTPUT/5tt_nocoreg.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/5tt_coreg.mif",
+      "validation_output": "OUTPUT/5tt_coreg.mif"
+    },
+    {
+      "name": "step18-tckgen",
+      "cmd": "tckgen OUTPUT/wmfod_norm.mif OUTPUT/tracks_1M.tck -select 1M -act OUTPUT/5tt_coreg.mif -seed_dynamic OUTPUT/wmfod_norm.mif -force",
+      "validation_output": "OUTPUT/tracks_1M.tck"
+    },
+    {
+      "name" : "step19a-tcksift",
+      "cmd" : "tcksift -fd_scale_gm -act OUTPUT/5tt_coreg.mif -term_number 1000000 OUTPUT/tracks_1M.tck OUTPUT/wmfod_norm.mif OUTPUT/sift_1M_hollander.tck",
+      "validation_output": "OUTPUT/sift_1M_hollander.tck"
+    },
+    {
+      "name" : "step20-flirt_template",
+      "cmd" : "flirt -in TEMPLATE/MNI152NLin2009cAsym_1mm_masked.nii -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_MNI_to_native -omat OUTPUT/dwi_MNI_native.mat -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 12",
+      "validation_output": "OUTPUT/dwi_MNI_native.mat"
+    },
+    {
+      "name" : "step21-Schaefer2018_200",
+      "cmd" : "flirt -in TEMPLATE/rSchaefer2018_200Parcels_17Networks_order.nii -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_Schaefer2018_200Parcels_17Networks_order.nii.gz -applyxfm -init OUTPUT/dwi_MNI_native.mat -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 12 -interp nearestneighbour",
+      "validation_output": "OUTPUT/dwi_Schaefer2018_200Parcels_17Networks_order.nii.gz"
+    },
+    {
+      "name" : "step22-tck2connectome_Schaefer2018_200_1",
+      "cmd" : "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Schaefer2018_200Parcels_17Networks_order.nii.gz OUTPUT/STRconnectome_SIFT_ACT_Schaefer2018_200_counts.csv -out_assignments OUTPUT/assignments_sift_Schaefer2018_200_counts.csv",
+      "validation_output": "OUTPUT/assignments_sift_Schaefer2018_200_counts.csv"
+    },
+    {
+      "name" : "step23-tck2connectome_Schaefer2018_200_2",
+      "cmd" : "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Schaefer2018_200Parcels_17Networks_order.nii.gz OUTPUT/STRconnectome_SIFT_ACT_Schaefer2018_200.csv -out_assignments OUTPUT/assignments_sift_Schaefer2018_200.csv",
+      "validation_output": "OUTPUT/assignments_sift_Schaefer2018_200.csv"
+    },
+    {
+      "name" : "step24-connectome2tck",
+      "cmd" : "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_Schaefer2018_200_counts.csv OUTPUT/exemplar_Schaefer2018_200_counts -files single -exemplars TEMPLATE/rSchaefer2018_200Parcels_17Networks_order.nii",
+      "validation_output": "OUTPUT/exemplar_LPBA40_counts"
+    }
+  ]
+}

@@ -11,3 +11,6 @@ sample*
 *.pyc
 *.out
 *.mif
+templates/*.nii*
+templates/*.txt
+templates/*.csv
