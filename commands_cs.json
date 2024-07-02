@@ -107,28 +107,28 @@
     },
     {
       "name" : "step20-flirt_template",
-      "cmd" : "flirt -in TEMPLATE/MNI152NLin2009cAsym_1mm_masked.nii -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_MNI_to_native -omat OUTPUT/dwi_MNI_native.mat -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 12",
+      "cmd" : "flirt -v -in TEMPLATE/MNI152lin_T1_2mm_brain.nii.gz -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_MNI_to_native -usesqform -omat OUTPUT/dwi_MNI_native.mat -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 12",
       "validation_output": "OUTPUT/dwi_MNI_native.mat"
     },
     {
-      "name" : "step21-Schaefer2018_200",
-      "cmd" : "flirt -in TEMPLATE/rSchaefer2018_200Parcels_17Networks_order.nii -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_Schaefer2018_200Parcels_17Networks_order.nii.gz -applyxfm -init OUTPUT/dwi_MNI_native.mat -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 12 -interp nearestneighbour",
-      "validation_output": "OUTPUT/dwi_Schaefer2018_200Parcels_17Networks_order.nii.gz"
+      "name" : "step21-BN",
+      "cmd" : "flirt -v -in TEMPLATE/BNA_FSL/Brainnetome/BNA-maxprob-thr0-2mm.nii.gz -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_Brainnetome.nii.gz -applyxfm -init OUTPUT/dwi_MNI_native.mat -interp nearestneighbour -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 9 ",
+      "validation_output": "OUTPUT/dwi_Brainnetome.nii.gz"
     },
     {
-      "name" : "step22-tck2connectome_Schaefer2018_200_1",
-      "cmd" : "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Schaefer2018_200Parcels_17Networks_order.nii.gz OUTPUT/STRconnectome_SIFT_ACT_Schaefer2018_200_counts.csv -out_assignments OUTPUT/assignments_sift_Schaefer2018_200_counts.csv",
-      "validation_output": "OUTPUT/assignments_sift_Schaefer2018_200_counts.csv"
+      "name" : "step22-tck2connectome_BM_1",
+      "cmd" : "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Brainnetome.nii.gz OUTPUT/STRconnectome_SIFT_ACT_Brainnetome_counts.csv -out_assignments OUTPUT/assignments_sift_Brainnetome_counts.csv",
+      "validation_output": "OUTPUT/assignments_sift_Brainnetome_counts.csv"
     },
     {
-      "name" : "step23-tck2connectome_Schaefer2018_200_2",
-      "cmd" : "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Schaefer2018_200Parcels_17Networks_order.nii.gz OUTPUT/STRconnectome_SIFT_ACT_Schaefer2018_200.csv -out_assignments OUTPUT/assignments_sift_Schaefer2018_200.csv",
-      "validation_output": "OUTPUT/assignments_sift_Schaefer2018_200.csv"
+      "name" : "step23-tck2connectome_Brainnetome_2",
+      "cmd" : "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Brainnetome.nii.gz OUTPUT/STRconnectome_SIFT_ACT_Brainnetome.csv -out_assignments OUTPUT/assignments_sift_Brainnetome.csv",
+      "validation_output": "OUTPUT/assignments_sift_Brainnetome.csv"
     },
     {
       "name" : "step24-connectome2tck",
-      "cmd" : "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_Schaefer2018_200_counts.csv OUTPUT/exemplar_Schaefer2018_200_counts -files single -exemplars TEMPLATE/rSchaefer2018_200Parcels_17Networks_order.nii",
-      "validation_output": "OUTPUT/exemplar_LPBA40_counts"
+      "cmd" : "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_Brainnetome_counts.csv OUTPUT/exemplar_Brainnetome_counts -files single -exemplars TEMPLATE/rBrainnetome.nii",
+      "validation_output": "OUTPUT/exemplar_Brainnetomee_counts"
     }
   ]
 }

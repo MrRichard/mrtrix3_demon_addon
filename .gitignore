@@ -14,3 +14,4 @@ sample*
 templates/*.nii*
 templates/*.txt
 templates/*.csv
+BNA_FSL/
