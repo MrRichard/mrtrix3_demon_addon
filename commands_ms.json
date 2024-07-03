@@ -18,7 +18,7 @@
     {
       "name": "step4-dwifslpreproc",
 
-      "cmd": "dwifslpreproc OUTPUT/dwi_den.mif OUTPUT/dwi_den_preproc.mif -rpe_header -se_epi b0_all.mif -align_seepi -force -nthreads 8",
+      "cmd": "dwifslpreproc OUTPUT/dwi_den.mif OUTPUT/dwi_den_preproc.mif -pe_dir AP -rpe_none -eddy_options \"--slm=linear --repol --cnr_maps --residuals\" -force -nthreads 8",
       "validation_output": "OUTPUT/dwi_den_preproc.mif"
     },
     {
