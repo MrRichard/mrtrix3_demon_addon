@@ -1,5 +1,6 @@
 import argparse
 from SlurmBatch import SLURMFileCreator
+from ImageTypeChecker import ImageTypeChecker
 import glob
 import json
 import os
@@ -61,13 +62,17 @@ def main():
     
     args = parser.parse_args()
     
-    # Create working and output directories   
-    output_path = os.path.join(args.output, args.subject_name)
+    # Create output directories   
+    output_path = os.path.join(args.subject_folder, "DTI", "mrtrix3_outputs")
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
     # Load config options into global var space        
     load_global_config(args.config_file)
+    
+    # Build the mrtrix3 input files
+    checker = ImageTypeChecker(args.subject_folder, args.config_file)
+    print(checker.get_mrtrix3_inputs())
         
     # Load commands and convert to a list
     commands = load_commands(args.command_file, args.subject_folder, output_path, args.rerun)

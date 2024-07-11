@@ -18,5 +18,6 @@ class SLURMFileCreator:
             f.write(f"#SBATCH --nodes={self.config['nodes']}\n")
             f.write(f"#SBATCH --cpus-per-task={self.config['cpus']}\n")
             f.write(f"#SBATCH --job-name={job_name}\n")
+            f.write(f"#SBATCH --mem={self.config['mem']}\n")
             f.write("module load singularity\n")
             f.write(f"singularity exec --nv {self.bind_string} {self.config['sif']} {shell_script}")
