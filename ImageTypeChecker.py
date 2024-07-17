@@ -104,8 +104,8 @@ class ImageTypeChecker:
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         
-        command = f"dcm2niix -o {output_path} -b o {dicom_path}"
-        #subprocess.run(command, shell=True, check=True)
+        command = f"dcm2niix -o {output_path} -b y {dicom_path}"
+        subprocess.run(command, shell=True, check=True)
 
     def find_file(self, base_name, extensions):
         for ext in extensions:
@@ -126,10 +126,10 @@ class ImageTypeChecker:
         if "SBRef" in series_description:
             return f"{direction}_SBREF_{suffix}"
         
-        if "P>A" in series_description:
+        if "PA" in series_description.replace('>',''):
             return f"P2A_{suffix}"
         
-        if "A>P" in series_description:
+        if "AP" in series_description.replace('>',''):
             return f"A2P_{suffix}"
         
         if "MOSAIC" in data.get("ImageType", []):

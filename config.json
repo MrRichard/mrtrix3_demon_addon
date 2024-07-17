@@ -1,9 +1,9 @@
 {
     "account": "ansir-users",
     "partition": "defq",
-    "time": "08:00:00",
+    "time": "10:00:00",
     "nodes": "1",
-    "cpus": "16",
+    "cpus": "4",
     "mem" : "8G",
     "sif" : "container/mrtrix3_latest.sif",
     "venv" : ".venv",
