@@ -16,3 +16,7 @@ templates/*.txt
 templates/*.csv
 BNA_FSL/
 .venv/
+
+test*.py
+*.png
+*.pdf

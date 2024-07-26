@@ -8,13 +8,23 @@
   ],
   "steps": [
     {
-      "name": "step1-mrconvert_dwi",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/A2P_MOSAIC.nii OUTPUT/raw_dwi.mif -fslgrad INPUT/mrtrix3_inputs/A2P_MOSAIC.bvec INPUT/mrtrix3_inputs/A2P_MOSAIC.bval -force",
-      "validation_output": "OUTPUT/raw_dwi.mif"
+      "name": "step1-mrconvert_A2P",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/A2P_MOSAIC.nii OUTPUT/A2P.mif -fslgrad INPUT/mrtrix3_inputs/A2P_MOSAIC.bvec INPUT/mrtrix3_inputs/A2P_MOSAIC.bval -force",
+      "validation_output": "OUTPUT/A2P.mif"
+    },
+    {
+      "name": "step1a-mrconvert_P2A",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/P2A_MOSAIC.nii OUTPUT/P2A.mif -force",
+      "validation_output": "OUTPUT/P2A.mif"
+    },
+    {
+      "name": "step1b-mrconvert_P2A",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/P2A_MOSAIC.nii OUTPUT/P2A.mif -fslgrad INPUT/mrtrix3_inputs/P2A_MOSAIC.bvec INPUT/mrtrix3_inputs/P2A_MOSAIC.bval -force",
+      "validation_output": "OUTPUT/P2A.mif"
     },
     {
       "name": "step2-dwiextract_A2P_b0-1",
-      "cmd": "dwiextract INPUT/mrtrix3_inputs/A2P_MOSAIC.nii OUTPUT/A2P_b0s.mif -fslgrad INPUT/mrtrix3_inputs/A2P_MOSAIC.bvec INPUT/mrtrix3_inputs/A2P_MOSAIC.bval -bzero -force",
+      "cmd": "dwiextract OUTPUT/A2P.mif OUTPUT/A2P_b0s.mif -bzero -force",
       "validation_output": "OUTPUT/A2P_b0s.mif"
     },
     {
@@ -23,8 +33,18 @@
       "validation_output" :  "OUTPUT/A2P_b0.mif"
     },
     {
-      "name": "step5-dwiextract_P2A_b0-2",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/P2A_MOSAIC.nii OUTPUT/P2A_b0.mif -force",
+      "name": "step5-dwiextract_P2A_b0-1",
+      "cmd": "mrconvert OUTPUT/P2A.mif OUTPUT/P2A_b0s.mif -bzero -force",
+      "validation_output": "OUTPUT/P2A_b0s.mif"
+    },
+    {
+      "name" : "step5-dwiextract_P2A_b0-2",
+      "cmd" : "mrconvert OUTPUT/P2A_b0s.mif -coord 3 0 OUTPUT/P2A_b0.mif -force",
+      "validation_output" :  "OUTPUT/P2A_b0.mif"
+    },
+    {
+      "name": "step5b-dwiextract_P2A_b0-1b",
+      "cmd": "mrconvert OUTPUT/P2A.mif OUTPUT/P2A_b0.mif -force",
       "validation_output": "OUTPUT/P2A_b0.mif"
     },
     {
@@ -33,13 +53,13 @@
       "validation_output" : "OUTPUT/b0_pair.mif"
     },
     {
-      "name": "step7-dwidenoise_raw_dwi",
-      "cmd": "dwidenoise OUTPUT/raw_dwi.mif OUTPUT/dwi_den.mif -noise OUTPUT/noise.mif -force",
+      "name": "step7-dwidenoise_A2P_dwi",
+      "cmd": "dwidenoise OUTPUT/A2P.mif OUTPUT/dwi_den.mif -noise OUTPUT/noise.mif -force -nthreads 4",
       "validation_output": "OUTPUT/dwi_den.mif"
     },
     {
       "name": "step8-mrcalc_denoise_residual",
-      "cmd": "mrcalc OUTPUT/raw_dwi.mif OUTPUT/dwi_den.mif -subtract OUTPUT/residual.mif -force",
+      "cmd": "mrcalc OUTPUT/A2P_dwi.mif OUTPUT/dwi_den.mif -subtract OUTPUT/residual.mif -force",
       "validation_output": "OUTPUT/residual.mif"
     },
     {
@@ -59,8 +79,8 @@
     },
     {
       "name" : "step11-mrconvert_mask",
-      "cmd" : "mrconvert INPUT/FieldMapCorrection/my_hifi_b0_brain_mask.nii.gz OUTPUT/orig_mask.mif -force",
-      "validation_output": "OUTPUT/orig_mask.mif"
+      "cmd" : "mrconvert INPUT/FieldMapCorrection/my_hifi_b0_brain_mask.nii.gz OUTPUT/mask.mif -force",
+      "validation_output": "OUTPUT/mask.mif"
     },
     {
       "name" : "step12-dwi2mask",
@@ -180,12 +200,12 @@
     {
       "name" : "step34-connectome2tck-counts",
       "cmd" : "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_Brainnetome_counts.csv OUTPUT/exemplar_Brainnetome_counts -files single -exemplars OUTPUT/dwi_Brainnetome.nii.gz",
-      "validation_output": "OUTPUT/exemplar_Brainnetomee_counts"
+      "validation_output": "OUTPUT/exemplar_Brainnetome_counts"
     },
     {
       "name" : "step34-connectome2tck-scaled",
       "cmd" : "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_Brainnetome_scaled.csv OUTPUT/exemplar_Brainnetome_scaled -files single -exemplars OUTPUT/dwi_Brainnetome.nii.gz",
-      "validation_output": "OUTPUT/exemplar_Brainnetomee_scaled"
+      "validation_output": "OUTPUT/exemplar_Brainnetome_scaled"
     }
   ]
 }

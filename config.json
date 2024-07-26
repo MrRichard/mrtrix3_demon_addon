@@ -4,7 +4,7 @@
     "time": "10:00:00",
     "nodes": "1",
     "cpus": "4",
-    "mem" : "8G",
+    "mem" : "12G",
     "sif" : "container/mrtrix3_latest.sif",
     "venv" : ".venv",
     "SeriesDescriptions" : [ "NODDI" , "DTI" , "DWI" , "DKI"],
