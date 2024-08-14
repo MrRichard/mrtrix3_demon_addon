@@ -6,6 +6,7 @@
     "cpus": "4",
     "mem" : "12G",
     "sif" : "container/mrtrix3_latest.sif",
+    "templates" : "/isilon/datalake/riipl/original/DEMONco/mrtrix3_demon_addon/templates/",
     "venv" : ".venv",
     "SeriesDescriptions" : [ "NODDI" , "DTI" , "DWI" , "DKI"],
     "ImageTypes" : ["DIFFUSION"]

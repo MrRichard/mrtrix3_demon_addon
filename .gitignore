@@ -20,3 +20,4 @@ BNA_FSL/
 test*.py
 *.png
 *.pdf
+*.txt

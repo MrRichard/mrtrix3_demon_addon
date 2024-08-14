@@ -14,15 +14,18 @@ def load_commands(file_path, input_path, output_path, rerun=False):
     # find T1 anat file
     pattern = os.path.join(os.path.join(input_path,'DTI'), '3*-tfl3d116ns.nii')
     matching_files = glob.glob(pattern)
-    
+        
     # build command list    
     commands = []
     
     for step in data['steps']:
         print(f"- writing step: {step['name']}")
         validation_output = step['validation_output'].replace("OUTPUT", output_path)
-        command = step['cmd'].replace("INPUT", input_path).replace("OUTPUT", output_path).replace("ANAT", matching_files[0]).replace("TEMPLATE", 'templates')
+        
+        command = step['cmd'].replace("INPUT", input_path).replace("OUTPUT", output_path).replace("ANAT", matching_files[0]).replace("TEMPLATE", '/templates')
+        #command = step['cmd'].replace("INPUT", '/input').replace("OUTPUT", '/output').replace("ANAT", matching_files[0]).replace("TEMPLATE", '/templates')
         log_file = os.path.join(output_path, f"{step['name']}_log.txt")
+        
         command_with_logging = f"{command} > {log_file} 2>&1"
         if rerun:
             commands.append(command_with_logging)
@@ -79,8 +82,9 @@ def main():
     
     # create a bash shell
     batch_script = create_bash_script(commands, os.path.join(output_path, f"{args.subject_name}_script.sh"))
+    #relative_bash_script_location=os.path.join("/input",  "DTI", "mrtrix3_outputs", f"{args.subject_name}_script.sh")
     slurm_creator = SLURMFileCreator(args.subject_name, config)
-    slurm_creator.create_bind_string(args.subject_folder, output_path)
+    slurm_creator.create_bind_string(args.subject_folder)
     slurm_creator.create_batch_file(batch_script)
 
 if __name__ == "__main__":

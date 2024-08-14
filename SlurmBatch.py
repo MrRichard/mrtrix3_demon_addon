@@ -4,9 +4,10 @@ class SLURMFileCreator:
         self.config = config
         self.bind_string = ''
         self.subjectname = subjectname
+        self.templatedir = self.config['templates']
         
-    def create_bind_string(self, input_directory, output_directory):
-        self.bind_string = f"-B {input_directory}/:/input/ -B {output_directory}/:/output/"
+    def create_bind_string(self, input_directory):
+        self.bind_string = f"-B {input_directory}/:{input_directory} -B {self.templatedir}:/templates/"
 
     def create_batch_file(self, shell_script):
         job_name = f"TRX_{self.subjectname[:4]}"

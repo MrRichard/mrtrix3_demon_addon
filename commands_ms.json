@@ -49,7 +49,7 @@
     },
     {
       "name" : "step6-mrcat",
-      "cmd" : "mrcat OUTPUT/A2P_b0.mif OUTPUT/P2A_b0.mif OUTPUT/b0_pair.mif -axis 3;",
+      "cmd" : "mrcat OUTPUT/A2P_b0.mif OUTPUT/P2A_b0.mif OUTPUT/b0_pair.mif -axis 3",
       "validation_output" : "OUTPUT/b0_pair.mif"
     },
     {
