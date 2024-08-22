@@ -23,7 +23,6 @@ def load_commands(file_path, input_path, output_path, rerun=False):
         validation_output = step['validation_output'].replace("OUTPUT", output_path)
         
         command = step['cmd'].replace("INPUT", input_path).replace("OUTPUT", output_path).replace("ANAT", matching_files[0]).replace("TEMPLATE", '/templates')
-        #command = step['cmd'].replace("INPUT", '/input').replace("OUTPUT", '/output').replace("ANAT", matching_files[0]).replace("TEMPLATE", '/templates')
         log_file = os.path.join(output_path, f"{step['name']}_log.txt")
         
         command_with_logging = f"{command} > {log_file} 2>&1"
@@ -75,7 +74,6 @@ def main():
     
     # Build the mrtrix3 input files
     checker = ImageTypeChecker(args.subject_folder, args.config_file)
-    print(checker.get_mrtrix3_inputs())
         
     # Load commands and convert to a list
     commands = load_commands(args.command_file, args.subject_folder, output_path, args.rerun)
