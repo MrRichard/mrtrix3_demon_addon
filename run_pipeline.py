@@ -12,6 +12,7 @@ def load_commands(file_path, input_path, output_path, rerun=False):
         data = json.load(f)
     
     # find T1 anat file
+    # TODO this is not very friendly for NHP or non-pipeline processed scripts 
     pattern = os.path.join(os.path.join(input_path,'DTI'), '3*-tfl3d116ns.nii')
     matching_files = glob.glob(pattern)
         
