@@ -1,11 +1,4 @@
 {
-  "default_slurm_settings": [
-    {
-      "cpus_per_task": 1,
-      "mem": "500MB",
-      "time": "00:30:00"
-    }
-  ],
   "steps": [
     {
       "name": "step1-mrconvert_A2P",
@@ -13,83 +6,68 @@
       "validation_output": "OUTPUT/A2P.mif"
     },
     {
-      "name": "step1a-mrconvert_P2A",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/P2A_MOSAIC.nii OUTPUT/P2A.mif -force",
-      "validation_output": "OUTPUT/P2A.mif"
-    },
-    {
-      "name": "step1b-mrconvert_P2A",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/P2A_MOSAIC.nii OUTPUT/P2A.mif -fslgrad INPUT/mrtrix3_inputs/P2A_MOSAIC.bvec INPUT/mrtrix3_inputs/P2A_MOSAIC.bval -force",
-      "validation_output": "OUTPUT/P2A.mif"
-    },
-    {
-      "name": "step2-dwiextract_A2P_b0-1",
-      "cmd": "dwiextract OUTPUT/A2P.mif OUTPUT/A2P_b0s.mif -bzero -force",
-      "validation_output": "OUTPUT/A2P_b0s.mif"
-    },
-    {
-      "name": "step3-dwiextract_A2P_b0-2",
-      "cmd": "mrconvert OUTPUT/A2P_b0s.mif -coord 3 0 OUTPUT/A2P_b0.mif -force",
-      "validation_output": "OUTPUT/A2P_b0.mif"
-    },
-    {
-      "name": "step5-dwiextract_P2A_b0-1",
-      "cmd": "mrconvert OUTPUT/P2A.mif OUTPUT/P2A_b0s.mif -bzero -force",
-      "validation_output": "OUTPUT/P2A_b0s.mif"
-    },
-    {
-      "name": "step5-dwiextract_P2A_b0-2",
-      "cmd": "mrconvert OUTPUT/P2A_b0s.mif -coord 3 0 OUTPUT/P2A_b0.mif -force",
-      "validation_output": "OUTPUT/P2A_b0.mif"
-    },
-    {
-      "name": "step5b-dwiextract_P2A_b0-1b",
-      "cmd": "mrconvert OUTPUT/P2A.mif OUTPUT/P2A_b0.mif -force",
-      "validation_output": "OUTPUT/P2A_b0.mif"
-    },
-    {
-      "name": "step6-mrcat",
-      "cmd": "mrcat OUTPUT/A2P_b0.mif OUTPUT/P2A_b0.mif OUTPUT/b0_pair.mif -axis 3",
-      "validation_output": "OUTPUT/b0_pair.mif"
-    },
-    {
-      "name": "step7-dwidenoise_A2P_dwi",
-      "cmd": "dwidenoise OUTPUT/A2P.mif OUTPUT/dwi_den.mif -noise OUTPUT/noise.mif -force -nthreads 8",
+      "name": "step2-dwidenoise_A2P_dwi",
+      "cmd": "dwidenoise OUTPUT/A2P.mif OUTPUT/dwi_den.mif -noise OUTPUT/noise.mif -force -nthreads 32",
       "validation_output": "OUTPUT/dwi_den.mif"
     },
     {
-      "name": "step8-mrcalc_denoise_residual",
-      "cmd": "mrcalc OUTPUT/A2P_dwi.mif OUTPUT/dwi_den.mif -subtract OUTPUT/residual.mif -force",
-      "validation_output": "OUTPUT/residual.mif"
+      "name": "step3-dwifslpreproc",
+      "cmd": "dwifslpreproc OUTPUT/dwi_den.mif OUTPUT/dwi_den_preproc.mif -rpe_none -pe_dir ap -readout_time 0.038115 -nthreads 32 -eddy_options \" --slm=linear \"",
+      "validation_output": "OUTPUT/dwi_den_preproc.mif"
     },
     {
-      "name": "step9-dwifslpreproc",
-      "cmd": "dwifslpreproc OUTPUT/dwi_den.mif OUTPUT/dwi_den_preproc.mif -rpe_pair -se_epi OUTPUT/b0_pair.mif -pe_dir ap -nthreads 8  -readout_time 0.038115 -align_seepi",
-      "validation_output": "OUTPUT/dwi_den_preproc.mif",
-      "slurm_settings": {
-        "cpus_per_task": 8,
-        "mem": "8GB",
-        "time": "01:00:00"
-      }
-    },
-    {
-      "name": "step10-dwibiascorrect",
+      "name": "step4-dwibiascorrect",
       "cmd": "dwibiascorrect ants OUTPUT/dwi_den_preproc.mif OUTPUT/dwi_den_preproc_unbiased.mif -bias OUTPUT/bias.mif -force",
       "validation_output": "OUTPUT/dwi_den_preproc_unbiased.mif"
     },
     {
-      "name": "step12-dwi2mask",
-      "cmd": "dwi2mask OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/mask.mif -force",
-      "validation_output": "OUTPUT/mask.mif"
+      "name": "step5-convert_anat",
+      "cmd": "mrconvert ANAT OUTPUT/anat.mif -force",
+      "validation_output": "OUTPUT/anat.mif"
     },
     {
-      "name": "step13-dwi2response",
+      "name": "step6-dwi2response",
       "cmd": "dwi2response dhollander OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_hollander.txt OUTPUT/gm_hollander.txt OUTPUT/csf_hollander.txt -voxels OUTPUT/voxels_hollander.mif -force",
       "validation_output": "OUTPUT/voxels_hollander.mif"
     },
     {
+      "name" : "step7-convert_mask",
+      "cmd" : "mrconvert MASK OUTPUT/anat_mask.mif -force",
+      "validation_output": "OUTPUT/anat_mask.mif"
+    },
+    {
+      "name": "step8-dwiextract_b0",
+      "cmd": "dwiextract OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/dwi_den_preproc_b0.mif -bzero",
+      "validation_output": "OUTPUT/dwi_den_preproc_b0.mif"
+    },
+    {
+      "name": "step9-mrmath_mean_b0",
+      "cmd": "mrmath OUTPUT/dwi_den_preproc_b0.mif mean OUTPUT/mean_b0_processed.mif -axis 3",
+      "validation_output": "OUTPUT/mean_b0_processed.mif"
+    },
+    {
+      "name": "step10-mrconvert_b0_to_FSL",
+      "cmd": "mrconvert OUTPUT/mean_b0_processed.mif OUTPUT/mean_b0_processed.nii.gz",
+      "validation_output": "OUTPUT/mean_b0_processed.nii.gz"
+    },
+    {
+      "name" : "step11-flirt_anat_to_dwi",
+      "cmd" : "flirt -v -in ANAT -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_anat_to_native -usesqform -omat OUTPUT/dwi_anat_native.mat -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 12",
+      "validation_output": "OUTPUT/dwi_anat_native.mat"
+    },
+    {
+      "name" : "step12-align_anat_mask",
+      "cmd" : "flirt -v -in OUTPUT/anat_mask.mif -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_mask.nii.gz -applyxfm -init OUTPUT/dwi_anat_native.mat -interp nearestneighbour -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 9",
+      "validation_output": "OUTPUT/dwi_mask.nii.gz"
+    },
+    {
+      "name" : "step13-convert_dwi_mask",
+      "cmd" : "mrconvert OUTPUT/dwi_mask.nii.gz OUTPUT/dwi_mask.mif -force",
+      "validation_output": "OUTPUT/dwi_mask.mif"
+    },
+    {
       "name": "step14-dwi2fod",
-      "cmd": "dwi2fod msmt_csd -mask OUTPUT/mask.mif OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_hollander.txt OUTPUT/wmfod_hollander.mif OUTPUT/gm_hollander.txt OUTPUT/gmfod_hollander.mif OUTPUT/csf_hollander.txt OUTPUT/csffod_hollander.mif -force",
+      "cmd": "dwi2fod msmt_csd -mask OUTPUT/dwi_mask.mif OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_hollander.txt OUTPUT/wmfod_hollander.mif OUTPUT/gm_hollander.txt OUTPUT/gmfod_hollander.mif OUTPUT/csf_hollander.txt OUTPUT/csffod_hollander.mif -force",
       "validation_output": "OUTPUT/wmfod_hollander.mif"
     },
     {
@@ -98,107 +76,87 @@
       "validation_output": "OUTPUT/wmfod_norm_hollander.mif"
     },
     {
-      "name": "step16-anat_convert",
-      "cmd": "mrconvert ANAT OUTPUT/anat.mif -force",
-      "validation_output": "OUTPUT/anat.mif"
-    },
-    {
-      "name": "step17-5ttgen",
-      "cmd": "5ttgen fsl OUTPUT/anat.mif OUTPUT/5tt_nocoreg.mif",
+      "name": "step16-5ttgen",
+      "cmd": "5ttgen fsl OUTPUT/anat.mif OUTPUT/5tt_nocoreg.mif -mask OUTPUT/anat_mask.mif -nthreads 32",
       "validation_output": "OUTPUT/5tt_nocoreg.mif"
     },
     {
-      "name": "step18-dwiextract_b0",
-      "cmd": "dwiextract OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/dwi_den_preproc_b0.mif -bzero",
-      "validation_output": "OUTPUT/dwi_den_preproc_b0.mif"
-    },
-    {
-      "name": "step19-mrmath_mean_b0",
-      "cmd": "mrmath OUTPUT/dwi_den_preproc_b0.mif mean OUTPUT/mean_b0_processed.mif -axis 3",
-      "validation_output": "OUTPUT/mean_b0_processed.mif"
-    },
-    {
-      "name": "step20-mrconvert_b0_to_FSL",
-      "cmd": "mrconvert OUTPUT/mean_b0_processed.mif OUTPUT/mean_b0_processed.nii.gz",
-      "validation_output": "OUTPUT/mean_b0_processed.nii.gz"
-    },
-    {
-      "name": "step21-mrconvert_seg_to_FSL",
+      "name": "step17-mrconvert_seg_to_FSL",
       "cmd": "mrconvert OUTPUT/5tt_nocoreg.mif OUTPUT/5tt_nocoreg.nii.gz",
       "validation_output": "OUTPUT/5tt_nocoreg.nii.gz"
     },
     {
-      "name": "step22-fslroi",
+      "name": "step18-fslroi",
       "cmd": "fslroi OUTPUT/5tt_nocoreg.nii.gz OUTPUT/5tt_vol0.nii.gz 0 1",
       "validation_output": "OUTPUT/5tt_vol0.nii.gz"
     },
     {
-      "name": "step23-flirt_coregister",
-      "cmd": "flirt -in OUTPUT/mean_b0_processed.nii.gz -ref OUTPUT/5tt_vol0.nii.gz -interp nearestneighbour -dof 6 -omat OUTPUT/diff2struct_fsl.mat",
+      "name": "step19-flirt_coregister",
+      "cmd": "flirt -in OUTPUT/mean_b0_processed.nii.gz -ref OUTPUT/5tt_vol0.nii.gz -interp nearestneighbour -dof 12 -omat OUTPUT/diff2struct_fsl.mat",
       "validation_output": "OUTPUT/diff2struct_fsl.mat"
     },
     {
-      "name": "step24-flirt_coregister",
+      "name": "step20-flirt_coregister",
       "cmd": "transformconvert OUTPUT/diff2struct_fsl.mat OUTPUT/mean_b0_processed.nii.gz OUTPUT/5tt_nocoreg.nii.gz flirt_import OUTPUT/diff2struct_mrtrix.txt",
       "validation_output": "OUTPUT/diff2struct_mrtrix.txt"
     },
     {
-      "name": "step25-mrtransform",
+      "name": "step21-mrtransform",
       "cmd": "mrtransform OUTPUT/5tt_nocoreg.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/5tt_coreg.mif",
       "validation_output": "OUTPUT/5tt_coreg.mif"
     },
     {
-      "name": "step26-5tt2gmwmi",
+      "name": "step22-5tt2gmwmi",
       "cmd": "5tt2gmwmi OUTPUT/5tt_coreg.mif OUTPUT/gmwmSeed_coreg.mif",
       "validation_output": "OUTPUT/gmwmSeed_coreg.mif"
     },
     {
-      "name": "step27-tckgen",
-      "cmd": "tckgen -act OUTPUT/5tt_coreg.mif -backtrack -seed_gmwmi OUTPUT/gmwmSeed_coreg.mif -nthreads 8 -maxlength 250 -cutoff 0.06 -select 10000000 OUTPUT/wmfod_norm_hollander.mif OUTPUT/tracks_10M_hollander.tck",
+      "name": "step23-tckgen",
+      "cmd": "tckgen -act OUTPUT/5tt_coreg.mif -backtrack -seed_gmwmi OUTPUT/gmwmSeed_coreg.mif -nthreads 32 -maxlength 250 -cutoff 0.06 -select 10000000 OUTPUT/wmfod_norm_hollander.mif OUTPUT/tracks_10M_hollander.tck",
       "validation_output": "OUTPUT/tracks_10M_hollander.tck"
     },
     {
-      "name": "step28-tckedit",
+      "name": "step24-tckedit",
       "cmd": "tckedit OUTPUT/tracks_10M_hollander.tck -number 200k OUTPUT/smallerTracks_200k_hollander.tck",
       "validation_output": "OUTPUT/smallerTracks_200k_hollander.tck"
     },
     {
-      "name": "step29-tcksift",
+      "name": "step25-tcksift",
       "cmd": "tcksift -fd_scale_gm -act OUTPUT/5tt_coreg.mif -term_number 1000000 OUTPUT/tracks_10M_hollander.tck OUTPUT/wmfod_norm_hollander.mif OUTPUT/sift_1M_hollander.tck",
       "validation_output": "OUTPUT/sift_1M_hollander.tck"
     },
     {
-      "name": "step30-flirt_template",
+      "name": "step26-flirt_template",
       "cmd": "flirt -v -in TEMPLATE/D99_template.nii.gz -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_D99_to_native -usesqform -omat OUTPUT/dwi_D99_native.mat -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 12",
       "validation_output": "OUTPUT/dwi_D99_native.mat"
     },
     {
-      "name": "step31-BN",
+      "name": "step27-BN",
       "cmd": "flirt -v -in TEMPLATE/D99_atlas_v2.0.nii.gz -ref OUTPUT/mean_b0_processed.nii.gz -out OUTPUT/dwi_D99_atlas.nii.gz -applyxfm -init OUTPUT/dwi_D99_native.mat -interp nearestneighbour -bins 256 -cost corratio -searchrx -90 90 -searchry -90 90 -searchrz -90 90 -dof 9 ",
       "validation_output": "OUTPUT/dwi_D99_atlas.nii.gz"
     },
     {
-      "name": "step32-tck2connectome_BN_1_counts",
+      "name": "step28-tck2connectome_BN_1_counts",
       "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_D99_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_D99_atlas_counts.csv -out_assignments OUTPUT/assignments_sift_D99_atlas_counts.csv",
       "validation_output": "OUTPUT/assignments_sift_D99_atlas_counts.csv"
     },
     {
-      "name": "step32-tck2connectome_BN_2_Scaled",
+      "name": "step29-tck2connectome_BN_2_Scaled",
       "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_D99_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_D99_atlas_scaled.csv -out_assignments OUTPUT/assignments_sift_D99_atlas_scaled.csv",
       "validation_output": "OUTPUT/assignments_sift_D99_atlas_scaled.csv"
     },
     {
-      "name": "step33-tck2connectome_D99_atlas_2",
+      "name": "step30-tck2connectome_D99_atlas_2",
       "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_D99_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_D99_atlas.csv -out_assignments OUTPUT/assignments_sift_D99_atlas.csv",
       "validation_output": "OUTPUT/assignments_sift_D99_atlas.csv"
     },
     {
-      "name": "step34-connectome2tck-counts",
+      "name": "step31-connectome2tck-counts",
       "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_D99_atlas_counts.csv OUTPUT/exemplar_D99_atlas_counts -files single -exemplars OUTPUT/dwi_D99_atlas.nii.gz",
       "validation_output": "OUTPUT/exemplar_D99_atlas_counts"
     },
     {
-      "name": "step34-connectome2tck-scaled",
+      "name": "step32-connectome2tck-scaled",
       "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_D99_atlas_scaled.csv OUTPUT/exemplar_D99_atlas_scaled -files single -exemplars OUTPUT/dwi_D99_atlas.nii.gz",
       "validation_output": "OUTPUT/exemplar_D99_atlas_scaled"
     }

@@ -12,7 +12,7 @@ class SLURMFileCreator:
         input_directory = os.path.abspath(input_directory)
         self.bind_string = f"-B {input_directory}/:{input_directory} -B {self.templatedir}:/templates/"
 
-    def create_batch_file(self, shell_script):
+    def create_batch_file(self, shell_script, is_nhp, skull_strip=''):
         job_name = f"TRX_{self.subjectname[:4]}"
         with open(f'{self.subjectname}.slurm', 'w') as f:
             f.write("#!/bin/tcsh\n")
@@ -24,4 +24,6 @@ class SLURMFileCreator:
             f.write(f"#SBATCH --job-name={job_name}\n")
             f.write(f"#SBATCH --mem={self.config['mem']}\n")
             f.write("module load singularity\n")
-            f.write(f"singularity exec --nv {self.bind_string} {self.config['sif']} {shell_script}")
+            if is_nhp:
+                f.write(f"singularity exec --nv {self.bind_string} {self.config['deepbet_sif']} {skull_strip} \n")
+            f.write(f"singularity exec --nv {self.bind_string} {self.config['mrtrix3_sif']} {shell_script}")
