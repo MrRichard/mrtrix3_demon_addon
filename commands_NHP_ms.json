@@ -2,12 +2,12 @@
   "steps": [
     {
       "name": "step1-mrconvert_A2P",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/A2P_MOSAIC.nii OUTPUT/A2P.mif -fslgrad INPUT/mrtrix3_inputs/A2P_MOSAIC.bvec INPUT/mrtrix3_inputs/A2P_MOSAIC.bval ",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/A2P_MOSAIC.nii OUTPUT/A2P.mif -fslgrad INPUT/mrtrix3_inputs/A2P_MOSAIC.bvec INPUT/mrtrix3_inputs/A2P_MOSAIC.bval",
       "validation_output": "OUTPUT/A2P.mif"
     },
     {
       "name": "step2-mrconvert_P2A",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/P2A_MOSAIC.nii OUTPUT/P2A.mif -fslgrad INPUT/mrtrix3_inputs/P2A_MOSAIC.bvec INPUT/mrtrix3_inputs/P2A_MOSAIC.bval ",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/P2A_MOSAIC.nii OUTPUT/P2A.mif -fslgrad INPUT/mrtrix3_inputs/P2A_MOSAIC.bvec INPUT/mrtrix3_inputs/P2A_MOSAIC.bval",
       "validation_output": "OUTPUT/P2A.mif"
     },
     {
@@ -41,7 +41,7 @@
       "validation_output": "OUTPUT/dwi_preproc.mif"
     },
     {
-      "name": "step9-dwidenoise_prproc_dwi",
+      "name": "step9-dwidenoise_preproc_dwi",
       "cmd": "dwidenoise OUTPUT/dwi_preproc.mif OUTPUT/dwi_den_preproc.mif -noise OUTPUT/noise.mif -nthreads 32",
       "validation_output": "OUTPUT/dwi_den_preproc.mif"
     },
@@ -51,163 +51,183 @@
       "validation_output": "OUTPUT/dwi_den_preproc_unbiased.mif"
     },
     {
-      "name": "step11-n4BFC_anat",
+      "name": "step11-dwi_convert_to_nii",
+      "cmd": "mrconvert OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/dwi_den_preproc_unbiased.nii.gz",
+      "validation_output": "OUTPUT/dwi_den_preproc_unbiased.nii.gz"
+    },
+    {
+      "name": "step12-dwi_resample",
+      "cmd": "/opt/ants/ResampleImage 4 OUTPUT/dwi_den_preproc_unbiased.nii.gz OUTPUT/dwi_highres.nii.gz 1x1x1x2.73 0",
+      "validation_output": "OUTPUT/dwi_highres.nii.gz"
+    },
+    {
+      "name": "step13-dwi_cropped",
+      "cmd": "fslroi OUTPUT/dwi_highres.nii.gz OUTPUT/dwi_cropped.nii.gz 45 100 45 100 0 -1",
+      "validation_output": "OUTPUT/dwi_cropped.nii.gz"
+    },
+    {
+      "name": "step14-dwi_covert_to_mif",
+      "cmd": "mrconvert OUTPUT/dwi_cropped.nii.gz OUTPUT/dwi_final.mif -fslgrad INPUT/mrtrix3_inputs/A2P_MOSAIC.bvec INPUT/mrtrix3_inputs/A2P_MOSAIC.bval",
+      "validation_output": "OUTPUT/dwi_final.mif"
+    },
+    {
+      "name": "step15-n4BFC_anat",
       "cmd": "/opt/ants/N4BiasFieldCorrection -d 3 -i ANAT -x MASK -r 1 -o OUTPUT/anat_bfc.nii.gz -v",
       "validation_output": "OUTPUT/anat_bfc.nii.gz"
     },
     {
-      "name": "step11-denoise_anat",
+      "name": "step16-denoise_anat",
       "cmd": "/opt/ants/DenoiseImage -d 3 -i OUTPUT/anat_bfc.nii.gz -x MASK -o OUTPUT/anat_bfc_dn.nii.gz -v",
       "validation_output": "OUTPUT/anat_bfc_dn.nii.gz"
     },
     {
-      "name": "step11-convert_anat",
+      "name": "step17-convert_anat",
       "cmd": "mrconvert OUTPUT/anat_bfc_dn.nii.gz OUTPUT/anat.mif ",
       "validation_output": "OUTPUT/anat.mif"
     },
     {
-      "name": "step6-dwi2response",
-      "cmd": "dwi2response dhollander OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_hollander.txt OUTPUT/gm_hollander.txt OUTPUT/csf_hollander.txt -voxels OUTPUT/voxels_hollander.mif ",
+      "name": "step18-dwi2response",
+      "cmd": "dwi2response dhollander OUTPUT/dwi_final.mif OUTPUT/wm_hollander.txt OUTPUT/gm_hollander.txt OUTPUT/csf_hollander.txt -voxels OUTPUT/voxels_hollander.mif ",
       "validation_output": "OUTPUT/voxels_hollander.mif"
     },
     {
-      "name" : "step7-convert_mask",
+      "name" : "step19-convert_mask",
       "cmd" : "mrconvert MASK OUTPUT/anat_mask.mif ",
       "validation_output": "OUTPUT/anat_mask.mif"
     },
     {
-      "name" : "step8-extract_brain",
+      "name" : "step20-extract_brain",
       "cmd" : "fslmaths ANAT -mas MASK OUTPUT/anat_brain.nii.gz",
       "validation_output": "OUTPUT/anat_brain.nii.gz"
     },
     {
-      "name": "step8-dwiextract_b0",
-      "cmd": "dwiextract OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/dwi_den_preproc_b0.mif -bzero",
+      "name": "step21-dwiextract_b0",
+      "cmd": "dwiextract OUTPUT/dwi_final.mif OUTPUT/dwi_den_preproc_b0.mif -bzero",
       "validation_output": "OUTPUT/dwi_den_preproc_b0.mif"
     },
     {
-      "name": "step9-mrmath_mean_b0",
+      "name": "step22-mrmath_mean_b0",
       "cmd": "mrmath OUTPUT/dwi_den_preproc_b0.mif mean OUTPUT/mean_b0_processed.mif -axis 3",
       "validation_output": "OUTPUT/mean_b0_processed.mif"
     },
     {
-      "name": "step10-mrconvert_b0_to_FSL",
+      "name": "step23-mrconvert_b0_to_FSL",
       "cmd": "mrconvert OUTPUT/mean_b0_processed.mif OUTPUT/mean_b0_processed.nii.gz",
       "validation_output": "OUTPUT/mean_b0_processed.nii.gz"
     },
     {
-      "name": "step11-translate_dwi_to_anat",
+      "name": "step24-translate_dwi_to_anat",
       "cmd": "/opt/ants/antsRegistrationSyNQuick.sh -d 3 -t t -m OUTPUT/mean_b0_processed.nii.gz -f ANAT -o OUTPUT/dwi_to_anat_",
-      "validation_output": "OUTPUT/dwi_to_anat_1Warped.nii.gz"
+      "validation_output": "OUTPUT/dwi_to_anat_Warped.nii.gz"
     },
     {
-      "name": "step12-reverse_transform_mask",
+      "name": "step25-reverse_transform_mask",
       "cmd": "/opt/ants/antsApplyTransforms -d 3 -i MASK -r OUTPUT/mean_b0_processed.nii.gz -t [ OUTPUT/dwi_to_anat_0GenericAffine.mat , 1] -o OUTPUT/dwi_mask.nii.gz -v -n nearestneighbor",
       "validation_output": "OUTPUT/dwi_mask.nii.gz"
     },
     {
-      "name": "step13-apply_mask",
+      "name": "step26-apply_mask",
       "cmd": "fslmaths OUTPUT/mean_b0_processed.nii.gz -mas OUTPUT/dwi_mask.nii.gz OUTPUT/mean_b0_brain.nii.gz",
       "validation_output": "OUTPUT/mean_b0_brain.nii.gz"
     },
     {
-      "name": "step14-convert_mask",
+      "name": "step27-convert_mask",
       "cmd": "mrconvert OUTPUT/dwi_mask.nii.gz OUTPUT/dwi_mask.mif",
       "validation_output": "OUTPUT/dwi_mask.mif"
     },
     {
-      "name": "step14-dwi2fod",
-      "cmd": "dwi2fod msmt_csd -mask OUTPUT/dwi_mask.mif OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_hollander.txt OUTPUT/wmfod_hollander.mif OUTPUT/gm_hollander.txt OUTPUT/gmfod_hollander.mif OUTPUT/csf_hollander.txt OUTPUT/csffod_hollander.mif ",
+      "name": "step28-dwi2fod",
+      "cmd": "dwi2fod msmt_csd -mask OUTPUT/dwi_mask.mif OUTPUT/dwi_final.mif OUTPUT/wm_hollander.txt OUTPUT/wmfod_hollander.mif OUTPUT/gm_hollander.txt OUTPUT/gmfod_hollander.mif OUTPUT/csf_hollander.txt OUTPUT/csffod_hollander.mif ",
       "validation_output": "OUTPUT/wmfod_hollander.mif"
     },
     {
-      "name": "step15-mtnormalise",
-      "cmd": "mtnormalise OUTPUT/wmfod_hollander.mif OUTPUT/wmfod_norm_hollander.mif OUTPUT/gmfod_hollander.mif OUTPUT/gmfod_norm_hollander.mif OUTPUT/csffod_hollander.mif OUTPUT/csffod_norm_hollander.mif -mask OUTPUT/dwi_mask.mif -debug ",
+      "name": "step29-mtnormalise",
+      "cmd": "mtnormalise OUTPUT/wmfod_hollander.mif OUTPUT/wmfod_norm_hollander.mif OUTPUT/gmfod_hollander.mif OUTPUT/gmfod_norm_hollander.mif OUTPUT/csffod_hollander.mif OUTPUT/csffod_norm_hollander.mif -mask OUTPUT/dwi_mask.mif",
       "validation_output": "OUTPUT/wmfod_norm_hollander.mif"
     },
     {
-      "name": "step16-5ttgen",
+      "name": "step30-5ttgen",
       "cmd": "5ttgen fsl OUTPUT/anat.mif OUTPUT/5tt_nocoreg.mif -mask OUTPUT/anat_mask.mif -nthreads 32",
       "validation_output": "OUTPUT/5tt_nocoreg.mif"
     },
     {
-      "name": "step17-mrconvert_seg_to_FSL",
+      "name": "step31-mrconvert_seg_to_FSL",
       "cmd": "mrconvert OUTPUT/5tt_nocoreg.mif OUTPUT/5tt_nocoreg.nii.gz",
       "validation_output": "OUTPUT/5tt_nocoreg.nii.gz"
     },
     {
-      "name": "step18-fslroi",
+      "name": "step32-fslroi",
       "cmd": "fslroi OUTPUT/5tt_nocoreg.nii.gz OUTPUT/5tt_vol0.nii.gz 0 1",
       "validation_output": "OUTPUT/5tt_vol0.nii.gz"
     },
     {
-      "name": "step19-flirt_coregister",
-      "cmd": "flirt -in OUTPUT/mean_b0_brain.nii.gz -ref OUTPUT/5tt_vol0.nii.gz -interp nearestneighbour -dof 12 -omat OUTPUT/diff2struct_fsl.mat",
+      "name": "step33-flirt_coregister",
+      "cmd": "flirt -v -in OUTPUT/mean_b0_brain.nii.gz -ref OUTPUT/5tt_vol0.nii.gz -interp nearestneighbour -dof 12 -omat OUTPUT/diff2struct_fsl.mat",
       "validation_output": "OUTPUT/diff2struct_fsl.mat"
     },
     {
-      "name": "step20-flirt_coregister",
+      "name": "step34-flirt_coregister",
       "cmd": "transformconvert OUTPUT/diff2struct_fsl.mat OUTPUT/mean_b0_brain.nii.gz OUTPUT/5tt_nocoreg.nii.gz flirt_import OUTPUT/diff2struct_mrtrix.txt",
       "validation_output": "OUTPUT/diff2struct_mrtrix.txt"
     },
     {
-      "name": "step21-mrtransform",
+      "name": "step35-mrtransform",
       "cmd": "mrtransform OUTPUT/5tt_nocoreg.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/5tt_coreg.mif",
       "validation_output": "OUTPUT/5tt_coreg.mif"
     },
     {
-      "name": "step22-5tt2gmwmi",
+      "name": "step36-5tt2gmwmi",
       "cmd": "5tt2gmwmi OUTPUT/5tt_coreg.mif OUTPUT/gmwmSeed_coreg.mif",
       "validation_output": "OUTPUT/gmwmSeed_coreg.mif"
     },
     {
-      "name": "step23-tckgen",
+      "name": "step37-tckgen",
       "cmd": "tckgen -act OUTPUT/5tt_coreg.mif -backtrack -seed_gmwmi OUTPUT/gmwmSeed_coreg.mif -nthreads 32 -maxlength 250 -cutoff 0.06 -select 10000000 OUTPUT/wmfod_norm_hollander.mif OUTPUT/tracks_10M_hollander.tck",
       "validation_output": "OUTPUT/tracks_10M_hollander.tck"
     },
     {
-      "name": "step24-tckedit",
+      "name": "step38-tckedit",
       "cmd": "tckedit OUTPUT/tracks_10M_hollander.tck -number 200k OUTPUT/smallerTracks_200k_hollander.tck",
       "validation_output": "OUTPUT/smallerTracks_200k_hollander.tck"
     },
     {
-      "name": "step25-tcksift",
+      "name": "step39-tcksift",
       "cmd": "tcksift -fd_scale_gm -act OUTPUT/5tt_coreg.mif -term_number 1000000 OUTPUT/tracks_10M_hollander.tck OUTPUT/wmfod_norm_hollander.mif OUTPUT/sift_1M_hollander.tck",
       "validation_output": "OUTPUT/sift_1M_hollander.tck"
     },
     {
-      "name": "step26-antsReg_template",
-      "cmd" : "/opt/ants/antsRegistrationSyNQuick.sh -d 3 -m TEMPLATE/D99_template.nii.gz -f OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_D99_to_native_ -n 24",
-      "validation_output": "OUTPUT/dwi_D99_to_native_Warped.nii.gz"
+      "name": "step40-antsReg_template",
+      "cmd" : "/opt/ants/antsRegistrationSyN.sh -d 3 -m TEMPLATE/NMT_v2.0_sym_SS.nii.gz -f OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_NMT_to_native_ -n 24",
+      "validation_output": "OUTPUT/dwi_NMT_to_native_Warped.nii.gz"
     },
     {
-      "name": "step27-antsApplyTransforms",
-      "cmd" : "/opt/ants/antsApplyTransforms -d 3 -i TEMPLATE/D99_atlas_v2.0.nii.gz -r OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_D99_atlas.nii.gz -t [ OUTPUT/dwi_D99_to_native_0GenericAffine.mat, 1 ] -t OUTPUT/dwi_D99_to_native_1InverseWarp.nii.gz -v -n nearestneighbor",
-      "validation_output": "OUTPUT/dwi_D99_atlas.nii.gz"
+      "name": "step41-antsApplyTransforms", 
+      "cmd" : "/opt/ants/antsApplyTransforms -d 3 -i TEMPLATE/CHARM_3_in_NMT_v2.0_sym.nii.gz -r OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_CHARM3_atlas.nii.gz -t OUTPUT/dwi_NMT_to_native_1Warp.nii.gz -t OUTPUT/dwi_NMT_to_native_0GenericAffine.mat -v -n nearestneighbor",
+      "validation_output": "OUTPUT/dwi_CHARM3_atlas.nii.gz"
     },
     {
-      "name": "step28-tck2connectome_BN_1_counts",
-      "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_D99_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_D99_atlas_counts.csv -out_assignments OUTPUT/assignments_sift_D99_atlas_counts.csv",
-      "validation_output": "OUTPUT/assignments_sift_D99_atlas_counts.csv"
+      "name": "step42-tck2connectome_NMT_1_counts",
+      "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_CHARM3_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_CHARM3_atlas_counts.csv -out_assignments OUTPUT/assignments_sift_CHARM3_atlas_counts.csv",
+      "validation_output": "OUTPUT/assignments_sift_CHARM3_atlas_counts.csv"
     },
     {
-      "name": "step29-tck2connectome_BN_2_Scaled",
-      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_D99_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_D99_atlas_scaled.csv -out_assignments OUTPUT/assignments_sift_D99_atlas_scaled.csv",
-      "validation_output": "OUTPUT/assignments_sift_D99_atlas_scaled.csv"
+      "name": "step43-tck2connectome_NMT_2_Scaled",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_CHARM3_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_CHARM3_atlas_scaled.csv -out_assignments OUTPUT/assignments_sift_CHARM3_atlas_scaled.csv",
+      "validation_output": "OUTPUT/assignments_sift_CHARM3_atlas_scaled.csv"
     },
     {
-      "name": "step30-tck2connectome_D99_atlas_2",
-      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_D99_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_D99_atlas.csv -out_assignments OUTPUT/assignments_sift_D99_atlas.csv",
-      "validation_output": "OUTPUT/assignments_sift_D99_atlas.csv"
+      "name": "step44-tck2connectome_CHARM3_atlas_2",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_CHARM3_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_CHARM3_atlas.csv -out_assignments OUTPUT/assignments_sift_CHARM3_atlas.csv",
+      "validation_output": "OUTPUT/assignments_sift_CHARM3_atlas.csv"
     },
     {
-      "name": "step31-connectome2tck-counts",
-      "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_D99_atlas_counts.csv OUTPUT/exemplar_D99_atlas_counts -files single -exemplars OUTPUT/dwi_D99_atlas.nii.gz",
-      "validation_output": "OUTPUT/exemplar_D99_atlas_counts"
+      "name": "step45-connectome2tck-counts",
+      "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_CHARM3_atlas_counts.csv OUTPUT/exemplar_CHARM3_atlas_counts -files single -exemplars OUTPUT/dwi_CHARM3_atlas.nii.gz",
+      "validation_output": "OUTPUT/exemplar_CHARM3_atlas_counts"
     },
     {
-      "name": "step32-connectome2tck-scaled",
-      "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_D99_atlas_scaled.csv OUTPUT/exemplar_D99_atlas_scaled -files single -exemplars OUTPUT/dwi_D99_atlas.nii.gz",
+      "name": "step46-connectome2tck-scaled",
+      "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_CHARM3_atlas_scaled.csv OUTPUT/exemplar_CHARM3_atlas_scaled -files single -exemplars OUTPUT/dwi_CHARM3_atlas.nii.gz",
       "validation_output": "OUTPUT/exemplar_D99_atlas_scaled"
     }
   ]
