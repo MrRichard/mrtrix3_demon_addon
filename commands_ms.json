@@ -8,63 +8,63 @@
   ],
   "steps": [
     {
-      "name": "step1-mrconvert_A2P",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/A2P_MOSAIC.nii OUTPUT/A2P.mif -fslgrad INPUT/mrtrix3_inputs/A2P_MOSAIC.bvec INPUT/mrtrix3_inputs/A2P_MOSAIC.bval -force",
-      "validation_output": "OUTPUT/A2P.mif"
+      "name": "step1-mrconvert_PRIMARY",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.nii OUTPUT/PRIMARY.mif -fslgrad INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.bvec INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.bval -force",
+      "validation_output": "OUTPUT/PRIMARY.mif"
     },
     {
-      "name": "step1a-mrconvert_P2A",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/P2A_MOSAIC.nii OUTPUT/P2A.mif -force",
-      "validation_output": "OUTPUT/P2A.mif"
+      "name": "step1a-mrconvert_SECONDARY",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.nii OUTPUT/SECONDARY.mif -force",
+      "validation_output": "OUTPUT/SECONDARY.mif"
     },
     {
-      "name": "step1b-mrconvert_P2A",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/P2A_MOSAIC.nii OUTPUT/P2A.mif -fslgrad INPUT/mrtrix3_inputs/P2A_MOSAIC.bvec INPUT/mrtrix3_inputs/P2A_MOSAIC.bval -force",
-      "validation_output": "OUTPUT/P2A.mif"
+      "name": "step1b-mrconvert_SECONDARY",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.nii OUTPUT/SECONDARY.mif -fslgrad INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.bvec INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.bval -force",
+      "validation_output": "OUTPUT/SECONDARY.mif"
     },
     {
-      "name": "step2-dwiextract_A2P_b0-1",
-      "cmd": "dwiextract OUTPUT/A2P.mif OUTPUT/A2P_b0s.mif -bzero -force",
-      "validation_output": "OUTPUT/A2P_b0s.mif"
+      "name": "step2-dwiextract_PRIMARY_b0-1",
+      "cmd": "dwiextract OUTPUT/PRIMARY.mif OUTPUT/PRIMARY_b0s.mif -bzero -force",
+      "validation_output": "OUTPUT/PRIMARY_b0s.mif"
     },
     {
-      "name" : "step3-dwiextract_A2P_b0-2",
-      "cmd" : "mrconvert OUTPUT/A2P_b0s.mif -coord 3 0 OUTPUT/A2P_b0.mif -force",
-      "validation_output" :  "OUTPUT/A2P_b0.mif"
+      "name" : "step3-dwiextract_PRIMARY_b0-2",
+      "cmd" : "mrconvert OUTPUT/PRIMARY_b0s.mif -coord 3 0 OUTPUT/PRIMARY_b0.mif -force",
+      "validation_output" :  "OUTPUT/PRIMARY_b0.mif"
     },
     {
-      "name": "step5-dwiextract_P2A_b0-1",
-      "cmd": "mrconvert OUTPUT/P2A.mif OUTPUT/P2A_b0s.mif -bzero -force",
-      "validation_output": "OUTPUT/P2A_b0s.mif"
+      "name": "step5-dwiextract_SECONDARY_b0-1",
+      "cmd": "mrconvert OUTPUT/SECONDARY.mif OUTPUT/SECONDARY_b0s.mif -bzero -force",
+      "validation_output": "OUTPUT/SECONDARY_b0s.mif"
     },
     {
-      "name" : "step5-dwiextract_P2A_b0-2",
-      "cmd" : "mrconvert OUTPUT/P2A_b0s.mif -coord 3 0 OUTPUT/P2A_b0.mif -force",
-      "validation_output" :  "OUTPUT/P2A_b0.mif"
+      "name" : "step5-dwiextract_SECONDARY_b0-2",
+      "cmd" : "mrconvert OUTPUT/SECONDARY_b0s.mif -coord 3 0 OUTPUT/SECONDARY_b0.mif -force",
+      "validation_output" :  "OUTPUT/SECONDARY_b0.mif"
     },
     {
-      "name": "step5b-dwiextract_P2A_b0-1b",
-      "cmd": "mrconvert OUTPUT/P2A.mif OUTPUT/P2A_b0.mif -force",
-      "validation_output": "OUTPUT/P2A_b0.mif"
+      "name": "step5b-dwiextract_SECONDARY_b0-1b",
+      "cmd": "mrconvert OUTPUT/SECONDARY.mif OUTPUT/SECONDARY_b0.mif -force",
+      "validation_output": "OUTPUT/SECONDARY_b0.mif"
     },
     {
       "name" : "step6-mrcat",
-      "cmd" : "mrcat OUTPUT/A2P_b0.mif OUTPUT/P2A_b0.mif OUTPUT/b0_pair.mif -axis 3",
+      "cmd" : "mrcat OUTPUT/PRIMARY_b0.mif OUTPUT/SECONDARY_b0.mif OUTPUT/b0_pair.mif -axis 3",
       "validation_output" : "OUTPUT/b0_pair.mif"
     },
     {
-      "name": "step7-dwidenoise_A2P_dwi",
-      "cmd": "dwidenoise OUTPUT/A2P.mif OUTPUT/dwi_den.mif -noise OUTPUT/noise.mif -force -nthreads 4",
+      "name": "step7-dwidenoise_PRIMARY_dwi",
+      "cmd": "dwidenoise OUTPUT/PRIMARY.mif OUTPUT/dwi_den.mif -noise OUTPUT/noise.mif -force -nthreads 4",
       "validation_output": "OUTPUT/dwi_den.mif"
     },
     {
       "name": "step8-mrcalc_denoise_residual",
-      "cmd": "mrcalc OUTPUT/A2P_dwi.mif OUTPUT/dwi_den.mif -subtract OUTPUT/residual.mif -force",
+      "cmd": "mrcalc OUTPUT/PRIMARY_dwi.mif OUTPUT/dwi_den.mif -subtract OUTPUT/residual.mif -force",
       "validation_output": "OUTPUT/residual.mif"
     },
     {
       "name": "step9-dwifslpreproc",
-      "cmd": "dwifslpreproc OUTPUT/dwi_den.mif OUTPUT/dwi_den_preproc.mif -pe_dir ap -rpe_pair -se_epi OUTPUT/b0_pair.mif -eddy_options \"--slm=linear \" -force -nthreads 4 -readout_time 0.0457",
+      "cmd": "dwifslpreproc OUTPUT/dwi_den.mif OUTPUT/dwi_den_preproc.mif -pe_dir PE_DIR -rpe_pair -se_epi OUTPUT/b0_pair.mif -eddy_options \"--slm=linear \" -force -nthreads 4 -readout_time READOUTTIME ",
       "validation_output": "OUTPUT/dwi_den_preproc.mif",
       "slurm_settings" : {
         "cpus_per_task": 30,

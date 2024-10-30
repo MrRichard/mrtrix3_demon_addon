@@ -13,7 +13,7 @@ class SLURMFileCreator:
         self.bind_string = f"-B {input_directory}/:{input_directory} -B {self.templatedir}:/templates/"
 
     def create_batch_file(self, shell_script, is_nhp, skull_strip=''):
-        job_name = f"TRX_{self.subjectname[:4]}"
+        job_name = f"TRX_{self.subjectname[:8]}"
         with open(f'{self.subjectname}.slurm', 'w') as f:
             f.write("#!/bin/tcsh\n")
             f.write(f"#SBATCH --account={self.config['account']}\n")
