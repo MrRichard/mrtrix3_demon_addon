@@ -186,53 +186,88 @@
       "validation_output": "OUTPUT/gmwmSeed_coreg.mif"
     },
     {
-      "name": "step37-antsReg_template",
+      "name": "step37-antsReg_NMT_template",
       "cmd" : "/opt/ants/antsRegistrationSyN.sh -d 3 -m TEMPLATE/NMT_v2.0_sym_SS.nii.gz -f OUTPUT/anat_in_dwi.nii.gz -o OUTPUT/anat_NMT_to_native_ -n 8",
       "validation_output": "OUTPUT/anat_NMT_to_native_Warped.nii.gz"
     },
     {
-      "name": "step38-antsApplyTransforms", 
+      "name": "step38-antsApplyTransforms_NMT", 
       "cmd" : "/opt/ants/antsApplyTransforms -d 3 -i TEMPLATE/CHARM_3_in_NMT_v2.0_sym.nii.gz -r OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_CHARM5_atlas.nii.gz -t OUTPUT/anat_NMT_to_native_1Warp.nii.gz -t OUTPUT/anat_NMT_to_native_0GenericAffine.mat -v -n nearestneighbor",
       "validation_output": "OUTPUT/dwi_CHARM5_atlas.nii.gz"
     },
     {
-      "name": "step39-tckgen",
+      "name": "step39-antsReg_UNC_template",
+      "cmd" : "/opt/ants/antsRegistrationSyN.sh -d 3 -m TEMPLATE/UNC_template.nii -f OUTPUT/anat_in_dwi.nii.gz -o OUTPUT/anat_UNC_to_native_ -n 8",
+      "validation_output": "OUTPUT/anat_UNC_to_native_Warped.nii.gz"
+    },
+    {
+      "name": "step40-antsApplyTransforms_UNC", 
+      "cmd" : "/opt/ants/antsApplyTransforms -d 3 -i TEMPLATE/UNC_Cortical_Atlas.nii -r OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_UNC_atlas.nii.gz -t OUTPUT/anat_UNC_to_native_1Warp.nii.gz -t OUTPUT/anat_UNC_to_native_0GenericAffine.mat -v -n nearestneighbor",
+      "validation_output": "OUTPUT/dwi_UNC_atlas.nii.gz"
+    },
+    {
+      "name": "step41-tckgen",
       "cmd": "tckgen -act OUTPUT/5tt_coreg.mif -backtrack -seed_gmwmi OUTPUT/gmwmSeed_coreg.mif -nthreads 8 -maxlength 250 -cutoff 0.06 -select 10000000 OUTPUT/wmfod_norm_hollander.mif OUTPUT/tracks_10M_hollander.tck",
       "validation_output": "OUTPUT/tracks_10M_hollander.tck"
     },
     {
-      "name": "step40-tckedit",
+      "name": "step42-tckedit",
       "cmd": "tckedit OUTPUT/tracks_10M_hollander.tck -number 200k OUTPUT/smallerTracks_200k_hollander.tck",
       "validation_output": "OUTPUT/smallerTracks_200k_hollander.tck"
     },
     {
-      "name": "step41-tcksift",
+      "name": "step43-tcksift",
       "cmd": "tcksift -fd_scale_gm -act OUTPUT/5tt_coreg.mif -term_number 1000000 OUTPUT/tracks_10M_hollander.tck OUTPUT/wmfod_norm_hollander.mif OUTPUT/sift_1M_hollander.tck",
       "validation_output": "OUTPUT/sift_1M_hollander.tck"
     },
     {
-      "name": "step42-tck2connectome_NMT_1_counts",
+      "name": "step44-tck2connectome_NMT_1_counts",
       "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_CHARM5_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_CHARM5_atlas_counts.csv -out_assignments OUTPUT/assignments_sift_CHARM5_atlas_counts.csv",
       "validation_output": "OUTPUT/assignments_sift_CHARM5_atlas_counts.csv"
     },
     {
-      "name": "step43-tck2connectome_NMT_2_Scaled",
+      "name": "step45-tck2connectome_NMT_2_Scaled",
       "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_CHARM5_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_CHARM5_atlas_scaled.csv -out_assignments OUTPUT/assignments_sift_CHARM5_atlas_scaled.csv",
       "validation_output": "OUTPUT/assignments_sift_CHARM5_atlas_scaled.csv"
     },
     {
-      "name": "step44-tck2connectome_CHARM5_atlas_2",
+      "name": "step46-tck2connectome_CHARM5_atlas_2",
       "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_CHARM5_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_CHARM5_atlas.csv -out_assignments OUTPUT/assignments_sift_CHARM5_atlas.csv",
       "validation_output": "OUTPUT/assignments_sift_CHARM5_atlas.csv"
     },
     {
-      "name": "step45-connectome2tck-counts",
+      "name": "step47-connectome2tck-counts",
       "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_CHARM5_atlas_counts.csv OUTPUT/exemplar_CHARM5_atlas_counts -files single -exemplars OUTPUT/dwi_CHARM5_atlas.nii.gz",
       "validation_output": "OUTPUT/exemplar_CHARM5_atlas_counts"
     },
     {
-      "name": "step46-connectome2tck-scaled",
+      "name": "step48-connectome2tck-scaled",
       "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_CHARM5_atlas_scaled.csv OUTPUT/exemplar_CHARM5_atlas_scaled -files single -exemplars OUTPUT/dwi_CHARM5_atlas.nii.gz",
+      "validation_output": "OUTPUT/exemplar_D99_atlas_scaled"
+    },
+    {
+      "name": "step49-tck2connectome_NMT_1_counts",
+      "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_UNC_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_UNC_atlas_counts.csv -out_assignments OUTPUT/assignments_sift_UNC_atlas_counts.csv",
+      "validation_output": "OUTPUT/assignments_sift_UNC_atlas_counts.csv"
+    },
+    {
+      "name": "step50-tck2connectome_NMT_2_Scaled",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_UNC_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_UNC_atlas_scaled.csv -out_assignments OUTPUT/assignments_sift_UNC_atlas_scaled.csv",
+      "validation_output": "OUTPUT/assignments_sift_UNC_atlas_scaled.csv"
+    },
+    {
+      "name": "step51-tck2connectome_UNC_atlas_2",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_UNC_atlas.nii.gz OUTPUT/STRconnectome_SIFT_ACT_UNC_atlas.csv -out_assignments OUTPUT/assignments_sift_UNC_atlas.csv",
+      "validation_output": "OUTPUT/assignments_sift_UNC_atlas.csv"
+    },
+    {
+      "name": "step52-connectome2tck-counts",
+      "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_UNC_atlas_counts.csv OUTPUT/exemplar_UNC_atlas_counts -files single -exemplars OUTPUT/dwi_UNC_atlas.nii.gz",
+      "validation_output": "OUTPUT/exemplar_UNC_atlas_counts"
+    },
+    {
+      "name": "step53-connectome2tck-scaled",
+      "cmd": "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_UNC_atlas_scaled.csv OUTPUT/exemplar_UNC_atlas_scaled -files single -exemplars OUTPUT/dwi_UNC_atlas.nii.gz",
       "validation_output": "OUTPUT/exemplar_D99_atlas_scaled"
     }
   ]
