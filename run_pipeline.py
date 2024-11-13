@@ -7,8 +7,12 @@ import os
 
 def find_t1_image(input_path):
     # find T1 anat file
-    pattern = os.path.join(os.path.join(input_path,'DTI'), '*.nii')
+    pattern = os.path.join(os.path.join(input_path,'DTI'), '*.info')
     matching_files = glob.glob(pattern)
+    
+    # Replace the suffix ".info" with ".nii" for each matching file
+    matching_files = [f.replace('.info', '.nii') for f in matching_files]
+    
     return matching_files
 
 def find_largest_and_smallest_MOSAIC(input_path):

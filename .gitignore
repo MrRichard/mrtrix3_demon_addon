@@ -6,7 +6,7 @@ __pycache__/
 *-tmp-*/
 temp/
 
-sample*
+*sampledata/
 *.slurm
 *.pyc
 *.out
