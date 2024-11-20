@@ -96,102 +96,117 @@
       "validation_output": "OUTPUT/anat.mif"
     },
     {
-      "name" : "step17-5ttgen",
+      "name": "step17-coregister_t1-flair",
+      "cmd" : "flirt -in FLAIR -ref ANAT -dof 6 -out OUTPUT/flair.nii.gz",
+      "validation_output": "OUTPUT/flair.nii.gz"
+    },
+    {
+      "name" : "step18-5ttgen",
       "cmd" : "5ttgen fsl OUTPUT/anat.mif OUTPUT/5tt_nocoreg.mif",
       "validation_output": "OUTPUT/5tt_nocoreg.mif"
     },
     {
-      "name" : "step18-dwiextract_b0",
+      "name" : "step19-dwiextract_b0",
       "cmd" : "dwiextract OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/dwi_den_preproc_b0.mif -bzero",
       "validation_output": "OUTPUT/dwi_den_preproc_b0.mif"
     },
     {
-      "name" : "step19-mrmath_mean_b0",
+      "name" : "step20-mrmath_mean_b0",
       "cmd" : "mrmath OUTPUT/dwi_den_preproc_b0.mif mean OUTPUT/mean_b0_processed.mif -axis 3",
       "validation_output": "OUTPUT/mean_b0_processed.mif"
     },
     {
-      "name" : "step20-mrconvert_b0_to_FSL",
+      "name" : "step21-mrconvert_b0_to_FSL",
       "cmd" : "mrconvert OUTPUT/mean_b0_processed.mif OUTPUT/mean_b0_processed.nii.gz",
       "validation_output": "OUTPUT/mean_b0_processed.nii.gz"
     },
     {
-      "name" : "step21-mrconvert_seg_to_FSL",
+      "name" : "step22-mrconvert_seg_to_FSL",
       "cmd" : "mrconvert OUTPUT/5tt_nocoreg.mif OUTPUT/5tt_nocoreg.nii.gz",
       "validation_output": "OUTPUT/5tt_nocoreg.nii.gz"
     },
     {
-      "name" : "step22-fslroi",
+      "name" : "step23-fslroi",
       "cmd" : "fslroi OUTPUT/5tt_nocoreg.nii.gz OUTPUT/5tt_vol0.nii.gz 0 1",
       "validation_output": "OUTPUT/5tt_vol0.nii.gz"
     },
     {
-      "name" : "step23-flirt_coregister",
-      "cmd" : "flirt -in OUTPUT/mean_b0_processed.nii.gz -ref OUTPUT/5tt_vol0.nii.gz -interp nearestneighbour -dof 6 -omat OUTPUT/diff2struct_fsl.mat",
+      "name" : "step24-flirt_coregister",
+      "cmd" : "flirt -in OUTPUT/mean_b0_processed.nii.gz -ref OUTPUT/flair.nii.gz -interp nearestneighbour -dof 6 -omat OUTPUT/diff2struct_fsl.mat",
       "validation_output": "OUTPUT/diff2struct_fsl.mat"
     },
     {
-      "name" : "step24-flirt_coregister",
+      "name" : "step25-transformconvert",
       "cmd" : "transformconvert OUTPUT/diff2struct_fsl.mat OUTPUT/mean_b0_processed.nii.gz OUTPUT/5tt_nocoreg.nii.gz flirt_import OUTPUT/diff2struct_mrtrix.txt",
       "validation_output": "OUTPUT/diff2struct_mrtrix.txt"
     },
     {
-      "name" : "step25-mrtransform",
+      "name" : "step26-mrtransform",
       "cmd" : "mrtransform OUTPUT/5tt_nocoreg.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/5tt_coreg.mif",
       "validation_output": "OUTPUT/5tt_coreg.mif"
     },
     {
-      "name" : "step26-5tt2gmwmi",
+      "name" : "step27-5tt2gmwmi",
       "cmd" : "5tt2gmwmi OUTPUT/5tt_coreg.mif OUTPUT/gmwmSeed_coreg.mif",
       "validation_output": "OUTPUT/gmwmSeed_coreg.mif"
     },
     {
-      "name" : "step27-tckgen",
+      "name" : "step28-tckgen",
       "cmd" : "tckgen -act OUTPUT/5tt_coreg.mif -backtrack -seed_gmwmi OUTPUT/gmwmSeed_coreg.mif -nthreads 8 -maxlength 250 -cutoff 0.06 -select 10000000 OUTPUT/wmfod_norm_hollander.mif OUTPUT/tracks_10M_hollander.tck",
       "validation_output": "OUTPUT/tracks_10M_hollander.tck"
     },
     {
-      "name" : "step28-tckedit",
+      "name" : "step29-tckedit",
       "cmd" : "tckedit OUTPUT/tracks_10M_hollander.tck -number 200k OUTPUT/smallerTracks_200k_hollander.tck",
       "validation_output": "OUTPUT/smallerTracks_200k_hollander.tck"
     },
     {
-      "name" : "step29-tcksift",
+      "name" : "step30-tcksift",
       "cmd" : "tcksift -fd_scale_gm -act OUTPUT/5tt_coreg.mif -term_number 1000000 OUTPUT/tracks_10M_hollander.tck OUTPUT/wmfod_norm_hollander.mif OUTPUT/sift_1M_hollander.tck",
       "validation_output": "OUTPUT/sift_1M_hollander.tck"
     },
     {
-      "name" : "step30-antsReg_template",
-      "cmd" : "/opt/ants/antsRegistrationSyN.sh -d 3 -m TEMPLATE/MNI152lin_T1_2mm_brain.nii.gz -f OUTPUT/mean_b0_processed.nii.gz -o OUTPUT/dwi_MNI_to_native_ -n 8",
+      "name": "step31-convert_mask",
+      "cmd": "mrconvert OUTPUT/mask.mif OUTPUT/mask.nii.gz",
+      "validation_output": "OUTPUT/mask.nii.gz"
+    },
+    {
+      "name": "step32-apply_mask",
+      "cmd": "fslmaths OUTPUT/mean_b0_processed.nii.gz -mas OUTPUT/mask.nii.gz OUTPUT/mean_b0_brain.nii.gz",
+      "validation_output": "OUTPUT/mean_b0_brain.nii.gz"
+    },
+    {
+      "name" : "step33-antsReg_template",
+      "cmd" : "/opt/ants/antsRegistrationSyN.sh -d 3 -m TEMPLATE/mni_icbm152_nlin_sym_09a/mni_icbm152_t2_relx_tal_nlin_sym_09a.nii -f OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_MNI_to_native_ -n 8",
       "validation_output": "OUTPUT/dwi_MNI_to_native_Warped.nii.gz"
     },
     {
-      "name" : "step31-BN",
-      "cmd" : "/opt/ants/antsApplyTransforms -d 3 -i TEMPLATE/BNA_FSL/Brainnetome/BNA-maxprob-thr0-2mm.nii.gz -r OUTPUT/mean_b0_processed.nii.gz -o OUTPUT/dwi_Brainnetome.nii.gz -t OUTPUT/dwi_MNI_to_native_1Warp.nii.gz -t OUTPUT/dwi_MNI_to_native_0GenericAffine.mat -v -n nearestneighbor",
+      "name" : "step34-BN",
+      "cmd" : "/opt/ants/antsApplyTransforms -d 3 -i TEMPLATE/mni_icbm152_nlin_sym_09a/Brainnetome.nii.gz -r OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_Brainnetome.nii.gz -t OUTPUT/dwi_MNI_to_native_1Warp.nii.gz -t OUTPUT/dwi_MNI_to_native_0GenericAffine.mat -v -n nearestneighbor",
       "validation_output": "OUTPUT/dwi_Brainnetome.nii.gz"
     },
     {
-      "name" : "step32-tck2connectome_BN_1_counts",
+      "name" : "step35-tck2connectome_BN_1_counts",
       "cmd" : "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Brainnetome.nii.gz OUTPUT/STRconnectome_SIFT_ACT_Brainnetome_counts.csv -out_assignments OUTPUT/assignments_sift_Brainnetome_counts.csv",
       "validation_output": "OUTPUT/assignments_sift_Brainnetome_counts.csv"
     },
     {
-      "name" : "step32-tck2connectome_BN_2_Scaled",
+      "name" : "step36-tck2connectome_BN_2_Scaled",
       "cmd" : "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Brainnetome.nii.gz OUTPUT/STRconnectome_SIFT_ACT_Brainnetome_scaled.csv -out_assignments OUTPUT/assignments_sift_Brainnetome_scaled.csv",
       "validation_output": "OUTPUT/assignments_sift_Brainnetome_scaled.csv"
     },
     {
-      "name" : "step33-tck2connectome_Brainnetome_2",
+      "name" : "step37-tck2connectome_Brainnetome_2",
       "cmd" : "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Brainnetome.nii.gz OUTPUT/STRconnectome_SIFT_ACT_Brainnetome.csv -out_assignments OUTPUT/assignments_sift_Brainnetome.csv",
       "validation_output": "OUTPUT/assignments_sift_Brainnetome.csv"
     },
     {
-      "name" : "step34-connectome2tck-counts",
+      "name" : "step38-connectome2tck-counts",
       "cmd" : "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_Brainnetome_counts.csv OUTPUT/exemplar_Brainnetome_counts -files single -exemplars OUTPUT/dwi_Brainnetome.nii.gz",
       "validation_output": "OUTPUT/exemplar_Brainnetome_counts"
     },
     {
-      "name" : "step34-connectome2tck-scaled",
+      "name" : "step39-connectome2tck-scaled",
       "cmd" : "connectome2tck OUTPUT/sift_1M_hollander.tck OUTPUT/assignments_sift_Brainnetome_scaled.csv OUTPUT/exemplar_Brainnetome_scaled -files single -exemplars OUTPUT/dwi_Brainnetome.nii.gz",
       "validation_output": "OUTPUT/exemplar_Brainnetome_scaled"
     }

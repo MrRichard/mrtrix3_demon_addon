@@ -7,7 +7,37 @@ import os
 
 def find_t1_image(input_path):
     # find T1 anat file
-    pattern = os.path.join(os.path.join(input_path,'DTI'), '*.info')
+    pattern = os.path.join(os.path.join(input_path,'nifti'), '*-tfl3d116*.info')
+    matching_files = glob.glob(pattern)
+    
+    # Replace the suffix ".info" with ".nii" for each matching file
+    matching_files = [f.replace('.info', '.nii') for f in matching_files]
+    
+    return matching_files
+
+def find_t1_brainmask_image(input_path):
+    # find T1 anat file
+    pattern = os.path.join(os.path.join(input_path,'nifti','cat12'), '*tfl3d116ns_bet_mask.nii.gz')
+    matching_files = glob.glob(pattern)
+    
+    # Replace the suffix ".info" with ".nii" for each matching file
+    matching_files = [f.replace('.info', '.nii') for f in matching_files]
+    
+    return matching_files
+
+def find_t2_image(input_path):
+    # find T1 anat file
+    pattern = os.path.join(os.path.join(input_path,'nifti'), '*-spc2*.info')
+    matching_files = glob.glob(pattern)
+    
+    # Replace the suffix ".info" with ".nii" for each matching file
+    matching_files = [f.replace('.info', '.nii') for f in matching_files]
+    
+    return matching_files
+
+def find_flair_image(input_path):
+    # find T1 anat file
+    pattern = os.path.join(os.path.join(input_path,'nifti'), '*-spcir*.info')
     matching_files = glob.glob(pattern)
     
     # Replace the suffix ".info" with ".nii" for each matching file
@@ -109,13 +139,23 @@ def load_commands(file_path, input_path, output_path, is_nhp=False, rerun=False)
     repetitiontime = mosaic_json['RepetitionTime']
     
     # Identify T1w input image
-    matching_files = find_t1_image(input_path)
+    matching_t1w_files = find_t1_image(input_path)
+
+    # Identify T2 FLAIR image
+    matching_flair_files = find_flair_image(input_path)
 
     # Identify NHP brain masks
     matching_mask_file=''
     if is_nhp:
-        matching_mask_file = matching_files[0].replace('.nii', '_pre_mask.nii.gz')
+        matching_mask_file = matching_t1w_files[0].replace('.nii', '_pre_mask.nii.gz')
         print(f'Preselecting mask file: {matching_mask_file}')
+    else:
+        matching_brainmask_images = find_t1_brainmask_image(input_path)
+        matching_mask_file = matching_brainmask_images[0]
+        print(f'Preselecting mask file: {matching_mask_file}')
+
+    print(f"T1w Image file: ${matching_t1w_files[0]}")
+    print(f"T2w Image file: ${matching_flair_files[0]}")
 
     # build command list    
     commands = []
@@ -124,7 +164,8 @@ def load_commands(file_path, input_path, output_path, is_nhp=False, rerun=False)
     replacements = {
         "INPUT": input_path,
         "OUTPUT": output_path,
-        "ANAT": matching_files[0],
+        "ANAT": matching_t1w_files[0],
+        "FLAIR" : matching_flair_files[0],
         "TEMPLATE": '/templates',
         "MASK": matching_mask_file,
         "PIXDIM4" : str(repetitiontime),
