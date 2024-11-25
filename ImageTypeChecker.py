@@ -32,6 +32,7 @@ class ImageTypeChecker:
     def process_directory(self):
         image_data = {}
         json_files = glob(os.path.join(self.directory_path,"nifti","*.json"))
+        json_files = []
         nifti2_created = False
         
         if len(json_files) <= 1:
@@ -64,6 +65,9 @@ class ImageTypeChecker:
                         
                         # classify the data
                         label=self.classify_diffusion_image(data, nii_file)
+                        if label == False:
+                            continue
+
                         base_name=os.path.basename(base_name)
                         print(f"{label} {base_name}")
                         image_data[label] = {
@@ -77,7 +81,6 @@ class ImageTypeChecker:
         self.mrtrix3_inputs = self.create_mrtrix3_inputs(image_data)
         
         if nifti2_created:
-            pass
             shutil.rmtree(nifti2dir)
             
         return image_data
@@ -93,7 +96,18 @@ class ImageTypeChecker:
         for label, files in image_data.items():
             for key, file_path in files.items():
                 if file_path:
-                    ext = os.path.splitext(file_path)[1]
+                    # Extract the base name of the file
+                    base_name = os.path.basename(file_path)
+                    # Handle two-part extensions
+                    if '.' in base_name:
+                        parts = base_name.rsplit('.', 2)  # Split into at most 3 parts
+                        if len(parts) == 3:  # E.g., "file.nii.gz"
+                            ext = f".{parts[1]}.{parts[2]}"
+                        else:  # E.g., "file.nii" or "file.dicom"
+                            ext = f".{parts[-1]}"
+                    else:
+                        ext = ''  # No extension
+                    
                     new_file_name = f"{label}{ext}"
                     new_file_path = os.path.join(mrtrix3_dir, new_file_name)
                     if os.path.exists(file_path):
@@ -104,7 +118,7 @@ class ImageTypeChecker:
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         
-        command = f"dcm2niix -o {output_path} -b y {dicom_path}"
+        command = f"dcm2niix -z y -m y -b y -i y -s y -o {output_path} -b y {dicom_path}"
         subprocess.run(command, shell=True, check=True)
 
     def find_file(self, base_name, extensions):
@@ -122,6 +136,9 @@ class ImageTypeChecker:
         
         direction = "A2P" if "j-" in phase_encoding_direction else "P2A"
         suffix=self.get_image_value_range(nii_file)
+
+        if suffix == None:
+            return False
         
         if "SBRef" in series_description:
             return f"{direction}_SBREF_{suffix}"
@@ -132,13 +149,16 @@ class ImageTypeChecker:
         if "AP" in series_description.replace('>',''):
             return f"A2P_{suffix}"
         
-        if "MOSAIC" in data.get("ImageType", []):
-            return f"{direction}_MOSAIC"
+        if ("AP" not in series_description and "PA" not in series_description):
+            return f"A2P_{suffix}"
         
-        if "PHASE" in data.get("ImageType", []):
-            return f"{direction}_PHASE"
+        # if "MOSAIC" in data.get("ImageType", []):
+        #     return f"{direction}_MOSAIC"
         
-        return "Unknown image type"
+        # if "PHASE" in data.get("ImageType", []):
+        #     return f"{direction}_PHASE"
+        
+        return False
     
     def get_image_value_range(self, nii_file):
         # Implement logic to load the image and get the value range
@@ -146,12 +166,16 @@ class ImageTypeChecker:
         
         if nii_file:
             # Load the NIfTI file and calculate the value range
-            img = nib.load(nii_file)
-            img_data = img.get_fdata()[:,:,:]
-            
-            if img_data.min() >= 0:
-                return f"MOSAIC"
-            if img_data.min() < -1000 and img_data.max() > 1000:
-                return f"PHASE"
+            try: 
+                img = nib.load(nii_file)
+                img_data = img.get_fdata()[:,:,:]
+                
+                if img_data.min() >= 0:
+                    return f"MOSAIC"
+                if img_data.min() < -1000 and img_data.max() > 1000:
+                    return f"PHASE"
+            except Exception as e:
+                print(f"Error processing NIfTI file {nii_file}: {e}")
+                
         return None
 

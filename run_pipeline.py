@@ -50,9 +50,9 @@ def find_largest_and_smallest_MOSAIC(input_path):
     folder_path = os.path.join(input_path, "mrtrix3_inputs")
 
     # list of all .nii files in the folder, ignoring those with 'PHASE' or 'SBREF'
-    nii_files = [f for f in os.listdir(folder_path) if f.endswith('.nii') and 'PHASE' not in f and 'SBREF' not in f]
+    nii_files = [f for f in os.listdir(folder_path) if f.endswith('.nii.gz') and 'PHASE' not in f and 'SBREF' not in f]
 
-    # check if there are any .nii files
+    # check if there are any .nii.gz files
     if nii_files:
         # get sizes of the files
         file_sizes = {f: os.path.getsize(os.path.join(folder_path, f)) for f in nii_files}
@@ -66,14 +66,14 @@ def find_largest_and_smallest_MOSAIC(input_path):
         min_size_files = [f for f, size in file_sizes.items() if size == min_size]
 
         # if more than one file for max size, check if "A2P_MOSAIC.nii" is in the list and return it
-        if len(max_size_files) > 1 and "A2P_MOSAIC.nii" in max_size_files:
-            largest_image = "A2P_MOSAIC.nii"
+        if len(max_size_files) > 1 and "A2P_MOSAIC.nii.gz" in max_size_files:
+            largest_image = "A2P_MOSAIC.nii.gz"
         else:
             largest_image = max_size_files[0]
         
         # if more than one file for min size, check if "P2A_MOSAIC.nii" is in the list and return it
-        if len(min_size_files) > 1 and "P2A_MOSAIC.nii" in min_size_files:
-            smallest_image = "P2A_MOSAIC.nii"
+        if len(min_size_files) > 1 and "P2A_MOSAIC.nii.gz" in min_size_files:
+            smallest_image = "P2A_MOSAIC.nii.gz"
         else:
             smallest_image = min_size_files[0]
 
@@ -81,7 +81,7 @@ def find_largest_and_smallest_MOSAIC(input_path):
     
     # if no .nii files in the directory
     else:
-        print("No .nii files found in the mrtrix3_inputs directory")
+        print("No .nii.gz files found in the mrtrix3_inputs directory")
         return None, None
     
 def parse_dir_codes(largest_file, smallest_file):
@@ -110,11 +110,11 @@ def parse_dir_codes(largest_file, smallest_file):
     
 def read_mosaic_json(input_file):
     # Check if the input file has the expected format and create the corresponding JSON file path
-    if not input_file.endswith('_MOSAIC.nii'):
-        raise ValueError("Input file must be a path to a *_MOSAIC.nii file")
+    if not input_file.endswith('_MOSAIC.nii.gz'):
+        raise ValueError("Input file must be a path to a *_MOSAIC.nii.gz file")
 
     # Construct the path for the associated JSON file
-    json_file_path = input_file.replace('.nii', '.json')
+    json_file_path = input_file.replace('.nii.gz', '.json')
 
     # Check if the JSON file exists
     if not os.path.exists(json_file_path):
@@ -266,6 +266,12 @@ def main():
 
     print(f"Specie Selected: {'Non-Human Primate' if args.nhp else 'Human'}")
     
+    # Check if DTI directory exists
+    dti_directory = os.path.join(args.subject_folder, "DTI")
+    if not os.path.exists(dti_directory):
+        print("DTI directory is not present")
+        exit(1)
+        
     # Create output directories   
     output_path = os.path.join(args.subject_folder, "DTI", "mrtrix3_outputs")
     if not os.path.exists(output_path):

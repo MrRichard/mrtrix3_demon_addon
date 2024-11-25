@@ -2,17 +2,17 @@
   "steps": [
     {
       "name": "step1-mrconvert_PRIMARY",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.nii OUTPUT/PRIMARY.mif -fslgrad INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.bvec INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.bval -force",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.nii.gz OUTPUT/PRIMARY.mif -fslgrad INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.bvec INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.bval -force",
       "validation_output": "OUTPUT/PRIMARY.mif"
     },
     {
       "name": "step1a-mrconvert_SECONDARY",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.nii OUTPUT/SECONDARY.mif -force",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.nii.gz.gz OUTPUT/SECONDARY.mif -force",
       "validation_output": "OUTPUT/SECONDARY.mif"
     },
     {
       "name": "step1b-mrconvert_SECONDARY",
-      "cmd": "mrconvert INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.nii OUTPUT/SECONDARY.mif -fslgrad INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.bvec INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.bval -force",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.nii.gz OUTPUT/SECONDARY.mif -fslgrad INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.bvec INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.bval -force",
       "validation_output": "OUTPUT/SECONDARY.mif"
     },
     {
@@ -132,7 +132,7 @@
     },
     {
       "name" : "step24-flirt_coregister",
-      "cmd" : "flirt -in OUTPUT/mean_b0_processed.nii.gz -ref OUTPUT/flair.nii.gz -interp nearestneighbour -dof 6 -omat OUTPUT/diff2struct_fsl.mat",
+      "cmd" : "flirt -in OUTPUT/mean_b0_processed.nii.gz -ref OUTPUT/5tt_vol0.nii.gz -interp nearestneighbour -dof 6 -omat OUTPUT/diff2struct_fsl.mat",
       "validation_output": "OUTPUT/diff2struct_fsl.mat"
     },
     {
