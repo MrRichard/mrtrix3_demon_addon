@@ -7,9 +7,8 @@ mrview ${1}/DTI/mrtrix3_outputs/mean_b0_processed.nii.gz \
     -mode 4 \
     -overlay.load ${1}/DTI/mrtrix3_outputs/5tt_coreg.mif \
     -overlay.opacity 0.4 \
-    -noannotations \
-    -orientationlabel true \
-    -capture.prefix ${1}/DTI/mrtrix3_outputs/qc_images/b0_5tt_mosaic \
+    -capture.folder ${1}/DTI/mrtrix3_outputs/qc_images \
+    -capture.prefix b0_5tt_mosaic \
     -capture.grab \
     -exit
 
@@ -18,9 +17,8 @@ mrview ${1}/DTI/mrtrix3_outputs/anat.mif \
     -mode 4 \
     -overlay.load ${1}/DTI/mrtrix3_outputs/5tt_nocoreg.mif \
     -overlay.opacity 0.4 \
-    -orientationlabel true \
-    -noannotations \
-    -capture.prefix ${1}/DTI/mrtrix3_outputs/qc_images/t1_5tt_mosaic \
+    -capture.folder ${1}/DTI/mrtrix3_outputs/qc_images \
+    -capture.prefix t1_5tt_mosaic \
     -capture.grab \
     -exit
 
@@ -31,9 +29,8 @@ mrview ${1}/DTI/mrtrix3_outputs/mean_b0_processed.nii.gz \
     -overlay.opacity 0.6 \
     -overlay.colourmap 6 \
     -overlay.interpolation false \
-    -noannotations \
-    -orientationlabel true \
-    -capture.prefix ${1}/DTI/mrtrix3_outputs/qc_images/tissue_ROI_overlay \
+    -capture.folder ${1}/DTI/mrtrix3_outputs/qc_images \
+    -capture.prefix tissue_ROI_overlay \
     -capture.grab \
     -exit
 
@@ -43,9 +40,8 @@ mrview ${1}/DTI/mrtrix3_outputs/mean_b0_processed.nii.gz \
     -mode 4 \
     -overlay.load ${1}/DTI/mrtrix3_outputs/5tt_coreg.mif \
     -overlay.opacity 0.4 \
-    -orientationlabel true \
-    -noannotations \
-    -capture.prefix ${1}/DTI/mrtrix3_outputs/qc_images/tissue_seg_overlay \
+    -capture.folder ${1}/DTI/mrtrix3_outputs/qc_images \
+    -capture.prefix tissue_seg_overlay \
     -capture.grab \
     -exit
 
@@ -55,11 +51,10 @@ mrview ${1}/DTI/mrtrix3_outputs/mean_b0_processed.nii.gz \
     -mode 4 \
     -overlay.load ${1}/DTI/mrtrix3_outputs/mask.mif \
     -overlay.opacity 0.4 \
-    -orientationlabel true \
     -overlay.colourmap 1 \
     -overlay.interpolation false \
-    -noannotations \
-    -capture.prefix ${1}/DTI/mrtrix3_outputs/qc_images/brain_mask_overlay \
+    -capture.folder ${1}/DTI/mrtrix3_outputs/qc_images \
+    -capture.prefix brain_mask_overlay \
     -capture.grab \
     -exit
 
@@ -71,7 +66,8 @@ mrview ${1}/DTI/mrtrix3_outputs/mean_b0_processed.nii.gz \
     -overlay.opacity 0.4 \
     -orientationlabel true \
     -noannotations \
-    -capture.prefix ${1}/DTI/mrtrix3_outputs/qc_images/response_function_voxels \
+    -capture.folder ${1}/DTI/mrtrix3_outputs/qc_images \
+    -capture.prefix response_function_voxels \
     -capture.grab \
     -exit
 
