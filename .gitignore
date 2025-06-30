@@ -16,6 +16,12 @@ templates/*.txt
 templates/*.csv
 BNA_FSL/
 .venv/
+.vscode/
+
+logs/
+jobs/
+qc*/
+templates/
 
 test*.py
 *.png
