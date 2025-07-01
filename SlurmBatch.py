@@ -13,6 +13,9 @@ class SLURMFileCreator:
         self.bind_string = f"-B {input_directory}/:{input_directory} -B {self.templatedir}:/templates/"
 
     def create_batch_file(self, shell_script, is_nhp, skull_strip=''):
+        # Create jobs directory if it doesn't exist
+        os.makedirs('jobs', exist_ok=True)
+        
         job_name = f"TRX_{self.subjectname[:8]}"
         with open(f'jobs/{self.subjectname}.slurm', 'w') as f:
             f.write("#!/bin/tcsh\n")

@@ -1,0 +1,240 @@
+{
+  "steps": [
+    {
+      "name": "step1-mrconvert_PRIMARY",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.nii.gz OUTPUT/PRIMARY.mif -fslgrad INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.bvec INPUT/mrtrix3_inputs/PRIMARY_MOSAIC.bval -force",
+      "validation_output": "OUTPUT/PRIMARY.mif"
+    },
+    {
+      "name": "step1b-mrconvert_SECONDARY", 
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.nii.gz OUTPUT/SECONDARY.mif -fslgrad INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.bvec INPUT/mrtrix3_inputs/SECONDARY_MOSAIC.bval -force",
+      "validation_output": "OUTPUT/SECONDARY.mif"
+    },
+    {
+      "name": "step2-dwiextract_PRIMARY_b0-1",
+      "cmd": "dwiextract OUTPUT/PRIMARY.mif OUTPUT/PRIMARY_b0s.mif -bzero -force",
+      "validation_output": "OUTPUT/PRIMARY_b0s.mif"
+    },
+    {
+      "name": "step3-dwiextract_PRIMARY_b0-2",
+      "cmd": "mrconvert OUTPUT/PRIMARY_b0s.mif -coord 3 0 OUTPUT/PRIMARY_b0.mif -force",
+      "validation_output": "OUTPUT/PRIMARY_b0.mif"
+    },
+    {
+      "name": "step4-copy_SECONDARY_b0",
+      "cmd": "mrconvert OUTPUT/SECONDARY.mif OUTPUT/SECONDARY_b0.mif -force",
+      "validation_output": "OUTPUT/SECONDARY_b0.mif"
+    },
+    {
+      "name": "step5-mrcat_b0_pair",
+      "cmd": "mrcat OUTPUT/PRIMARY_b0.mif OUTPUT/SECONDARY_b0.mif OUTPUT/b0_pair.mif -axis 3",
+      "validation_output": "OUTPUT/b0_pair.mif"
+    },
+    {
+      "name": "step6-dwidenoise_PRIMARY_dwi",
+      "cmd": "dwidenoise OUTPUT/PRIMARY.mif OUTPUT/dwi_den.mif -noise OUTPUT/noise.mif -force -nthreads 8",
+      "validation_output": "OUTPUT/dwi_den.mif"
+    },
+    {
+      "name": "step7-mrcalc_denoise_residual",
+      "cmd": "mrcalc OUTPUT/PRIMARY.mif OUTPUT/dwi_den.mif -subtract OUTPUT/residual.mif -force",
+      "validation_output": "OUTPUT/residual.mif"
+    },
+    {
+      "name": "step8-dwifslpreproc",
+      "cmd": "dwifslpreproc OUTPUT/dwi_den.mif OUTPUT/dwi_den_preproc.mif -pe_dir PE_DIR -rpe_pair -se_epi OUTPUT/b0_pair.mif -eddy_options \"--slm=linear \" -force -nthreads 8 -readout_time READOUTTIME",
+      "validation_output": "OUTPUT/dwi_den_preproc.mif"
+    },
+    {
+      "name": "step9-dwibiascorrect",
+      "cmd": "dwibiascorrect ants OUTPUT/dwi_den_preproc.mif OUTPUT/dwi_den_preproc_unbiased.mif -bias OUTPUT/bias.mif -force",
+      "validation_output": "OUTPUT/dwi_den_preproc_unbiased.mif"
+    },
+    {
+      "name": "step10-dwi2mask",
+      "cmd": "dwi2mask OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/mask.mif -force",
+      "validation_output": "OUTPUT/mask.mif"
+    },
+    {
+      "name": "step11-dwi2response",
+      "cmd": "dwi2response dhollander OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_hollander.txt OUTPUT/gm_hollander.txt OUTPUT/csf_hollander.txt -voxels OUTPUT/voxels_hollander.mif -force",
+      "validation_output": "OUTPUT/voxels_hollander.mif"
+    },
+    {
+      "name": "step12-dwi2fod",
+      "cmd": "dwi2fod msmt_csd -mask OUTPUT/mask.mif OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_hollander.txt OUTPUT/wmfod_hollander.mif OUTPUT/gm_hollander.txt OUTPUT/gmfod_hollander.mif OUTPUT/csf_hollander.txt OUTPUT/csffod_hollander.mif -force",
+      "validation_output": "OUTPUT/wmfod_hollander.mif"
+    },
+    {
+      "name": "step13-mtnormalise",
+      "cmd": "mtnormalise OUTPUT/wmfod_hollander.mif OUTPUT/wmfod_norm_hollander.mif OUTPUT/gmfod_hollander.mif OUTPUT/gmfod_norm_hollander.mif OUTPUT/csffod_hollander.mif OUTPUT/csffod_norm_hollander.mif -mask OUTPUT/mask.mif -debug -force",
+      "validation_output": "OUTPUT/wmfod_norm_hollander.mif"
+    },
+    {
+      "name": "step14-anat_convert",
+      "cmd": "mrconvert ANAT OUTPUT/anat.mif -force",
+      "validation_output": "OUTPUT/anat.mif"
+    },
+    {
+      "name": "step15-5ttgen",
+      "cmd": "5ttgen fsl OUTPUT/anat.mif OUTPUT/5tt_nocoreg.mif",
+      "validation_output": "OUTPUT/5tt_nocoreg.mif"
+    },
+    {
+      "name": "step16-dwiextract_b0",
+      "cmd": "dwiextract OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/dwi_den_preproc_b0.mif -bzero",
+      "validation_output": "OUTPUT/dwi_den_preproc_b0.mif"
+    },
+    {
+      "name": "step17-mrmath_mean_b0",
+      "cmd": "mrmath OUTPUT/dwi_den_preproc_b0.mif mean OUTPUT/mean_b0_processed.mif -axis 3",
+      "validation_output": "OUTPUT/mean_b0_processed.mif"
+    },
+    {
+      "name": "step18-mrconvert_b0_to_FSL",
+      "cmd": "mrconvert OUTPUT/mean_b0_processed.mif OUTPUT/mean_b0_processed.nii.gz",
+      "validation_output": "OUTPUT/mean_b0_processed.nii.gz"
+    },
+    {
+      "name": "step19-mrconvert_seg_to_FSL",
+      "cmd": "mrconvert OUTPUT/5tt_nocoreg.mif OUTPUT/5tt_nocoreg.nii.gz",
+      "validation_output": "OUTPUT/5tt_nocoreg.nii.gz"
+    },
+    {
+      "name": "step20-fslroi",
+      "cmd": "fslroi OUTPUT/5tt_nocoreg.nii.gz OUTPUT/5tt_vol0.nii.gz 0 1",
+      "validation_output": "OUTPUT/5tt_vol0.nii.gz"
+    },
+    {
+      "name": "step21-flirt_coregister",
+      "cmd": "flirt -in OUTPUT/mean_b0_processed.nii.gz -ref OUTPUT/5tt_vol0.nii.gz -interp nearestneighbour -dof 6 -omat OUTPUT/diff2struct_fsl.mat",
+      "validation_output": "OUTPUT/diff2struct_fsl.mat"
+    },
+    {
+      "name": "step22-transformconvert",
+      "cmd": "transformconvert OUTPUT/diff2struct_fsl.mat OUTPUT/mean_b0_processed.nii.gz OUTPUT/5tt_nocoreg.nii.gz flirt_import OUTPUT/diff2struct_mrtrix.txt",
+      "validation_output": "OUTPUT/diff2struct_mrtrix.txt"
+    },
+    {
+      "name": "step23-mrtransform",
+      "cmd": "mrtransform OUTPUT/5tt_nocoreg.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/5tt_coreg.mif",
+      "validation_output": "OUTPUT/5tt_coreg.mif"
+    },
+    {
+      "name": "step24-5tt2gmwmi",
+      "cmd": "5tt2gmwmi OUTPUT/5tt_coreg.mif OUTPUT/gmwmSeed_coreg.mif",
+      "validation_output": "OUTPUT/gmwmSeed_coreg.mif"
+    },
+    {
+      "name": "step25-tckgen",
+      "cmd": "tckgen -act OUTPUT/5tt_coreg.mif -backtrack -seed_gmwmi OUTPUT/gmwmSeed_coreg.mif -nthreads 8 -maxlength 250 -cutoff 0.06 -select 10000000 OUTPUT/wmfod_norm_hollander.mif OUTPUT/tracks_10M_hollander.tck",
+      "validation_output": "OUTPUT/tracks_10M_hollander.tck"
+    },
+    {
+      "name": "step26-tckedit",
+      "cmd": "tckedit OUTPUT/tracks_10M_hollander.tck -number 200k OUTPUT/smallerTracks_200k_hollander.tck",
+      "validation_output": "OUTPUT/smallerTracks_200k_hollander.tck"
+    },
+    {
+      "name": "step27-tcksift",
+      "cmd": "tcksift -fd_scale_gm -act OUTPUT/5tt_coreg.mif -term_number 1000000 OUTPUT/tracks_10M_hollander.tck OUTPUT/wmfod_norm_hollander.mif OUTPUT/sift_1M_hollander.tck",
+      "validation_output": "OUTPUT/sift_1M_hollander.tck"
+    },
+    {
+      "name": "step28-convert_mask",
+      "cmd": "mrconvert OUTPUT/mask.mif OUTPUT/mask.nii.gz",
+      "validation_output": "OUTPUT/mask.nii.gz"
+    },
+    {
+      "name": "step29-apply_mask",
+      "cmd": "fslmaths OUTPUT/mean_b0_processed.nii.gz -mas OUTPUT/mask.nii.gz OUTPUT/mean_b0_brain.nii.gz",
+      "validation_output": "OUTPUT/mean_b0_brain.nii.gz"
+    },
+    {
+      "name": "step30-antsReg_template",
+      "cmd": "/opt/ants/antsRegistrationSyN.sh -d 3 -m TEMPLATE/mni_icbm152_nlin_sym_09a/mni_icbm152_t2_relx_tal_nlin_sym_09a.nii -f OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_MNI_to_native_ -n 8",
+      "validation_output": "OUTPUT/dwi_MNI_to_native_Warped.nii.gz"
+    },
+    {
+      "name": "step31-BN_transform",
+      "cmd": "/opt/ants/antsApplyTransforms -d 3 -i TEMPLATE/mni_icbm152_nlin_sym_09a/Brainnetome.nii.gz -r OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_Brainnetome.nii.gz -t OUTPUT/dwi_MNI_to_native_1Warp.nii.gz -t OUTPUT/dwi_MNI_to_native_0GenericAffine.mat -v -n nearestneighbor",
+      "validation_output": "OUTPUT/dwi_Brainnetome.nii.gz",
+      "species": "both"
+    },
+    {
+      "name": "step32-freesurfer_labelconvert_DK",
+      "cmd": "labelconvert FS_APARC_ASEG $FREESURFER_HOME/FreeSurferColorLUT.txt $MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_default.txt OUTPUT/nodes_freesurfer_DK.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_DK.mif",
+      "species": "human",
+      "requires": "FS_APARC_ASEG"
+    },
+    {
+      "name": "step33-freesurfer_labelsgmfix_DK",
+      "cmd": "labelsgmfix OUTPUT/nodes_freesurfer_DK.mif FS_BRAIN $MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_default.txt OUTPUT/nodes_freesurfer_DK_fixed.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_DK_fixed.mif",
+      "species": "human",
+      "requires": "FS_APARC_ASEG"
+    },
+    {
+      "name": "step34-freesurfer_transform_DK",
+      "cmd": "mrtransform OUTPUT/nodes_freesurfer_DK_fixed.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/nodes_freesurfer_DK_dwi.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_DK_dwi.mif",
+      "species": "human",
+      "requires": "FS_APARC_ASEG"
+    },
+    {
+      "name": "step35-freesurfer_labelconvert_Destrieux",
+      "cmd": "labelconvert FS_APARC_DESTRIEUX $FREESURFER_HOME/FreeSurferColorLUT.txt $MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_a2009s.txt OUTPUT/nodes_freesurfer_Destrieux.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_Destrieux.mif",
+      "species": "human",
+      "requires": "FS_APARC_DESTRIEUX"
+    },
+    {
+      "name": "step36-freesurfer_transform_Destrieux",
+      "cmd": "mrtransform OUTPUT/nodes_freesurfer_Destrieux.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/nodes_freesurfer_Destrieux_dwi.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_Destrieux_dwi.mif",
+      "species": "human",
+      "requires": "FS_APARC_DESTRIEUX"
+    },
+    {
+      "name": "step37-connectome_Brainnetome_counts",
+      "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Brainnetome.nii.gz OUTPUT/connectome_Brainnetome_counts.csv -out_assignments OUTPUT/assignments_Brainnetome_counts.csv",
+      "validation_output": "OUTPUT/connectome_Brainnetome_counts.csv",
+      "species": "both"
+    },
+    {
+      "name": "step38-connectome_Brainnetome_scaled",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/dwi_Brainnetome.nii.gz OUTPUT/connectome_Brainnetome_scaled.csv -out_assignments OUTPUT/assignments_Brainnetome_scaled.csv",
+      "validation_output": "OUTPUT/connectome_Brainnetome_scaled.csv",
+      "species": "both"
+    },
+    {
+      "name": "step39-connectome_FreeSurfer_DK_counts",
+      "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/nodes_freesurfer_DK_dwi.mif OUTPUT/connectome_FreeSurfer_DK_counts.csv -out_assignments OUTPUT/assignments_FreeSurfer_DK_counts.csv",
+      "validation_output": "OUTPUT/connectome_FreeSurfer_DK_counts.csv",
+      "species": "human",
+      "requires": "FS_APARC_ASEG"
+    },
+    {
+      "name": "step40-connectome_FreeSurfer_DK_scaled",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/nodes_freesurfer_DK_dwi.mif OUTPUT/connectome_FreeSurfer_DK_scaled.csv -out_assignments OUTPUT/assignments_FreeSurfer_DK_scaled.csv",
+      "validation_output": "OUTPUT/connectome_FreeSurfer_DK_scaled.csv",
+      "species": "human",
+      "requires": "FS_APARC_ASEG"
+    },
+    {
+      "name": "step41-connectome_FreeSurfer_Destrieux_counts",
+      "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_hollander.tck OUTPUT/nodes_freesurfer_Destrieux_dwi.mif OUTPUT/connectome_FreeSurfer_Destrieux_counts.csv -out_assignments OUTPUT/assignments_FreeSurfer_Destrieux_counts.csv",
+      "validation_output": "OUTPUT/connectome_FreeSurfer_Destrieux_counts.csv",
+      "species": "human",
+      "requires": "FS_APARC_DESTRIEUX"
+    },
+    {
+      "name": "step42-connectome_FreeSurfer_Destrieux_scaled",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_hollander.tck OUTPUT/nodes_freesurfer_Destrieux_dwi.mif OUTPUT/connectome_FreeSurfer_Destrieux_scaled.csv -out_assignments OUTPUT/assignments_FreeSurfer_Destrieux_scaled.csv",
+      "validation_output": "OUTPUT/connectome_FreeSurfer_Destrieux_scaled.csv",
+      "species": "human",
+      "requires": "FS_APARC_DESTRIEUX"
+    }
+  ]
+}

@@ -4,6 +4,7 @@ from ImageTypeChecker import ImageTypeChecker
 import glob
 import json
 import os
+import logging
 
 def find_t1_image(input_path):
     # find T1 anat file
@@ -225,7 +226,259 @@ def load_global_config(file_path):
     with open(file_path, 'r') as f:
         config = json.load(f)
 
-def main():
+def detect_freesurfer_version(subject_folder):
+    """
+    Detect available FreeSurfer versions and return the best one with warnings.
+    Priority: freesurfer8.0 > FreeSurfer7 > FreeSurfer (5.3)
+    """
+    fs_dirs = {
+        'freesurfer8.0': 'freesurfer8.0', # Version 8.0.0
+        'FreeSurfer7': 'FreeSurfer7', # Version 7.2
+        'FreeSurfer': 'FreeSurfer'  # Version 5.3
+    }
+    
+    available_versions = {}
+    
+    for version, dirname in fs_dirs.items():
+        if dirname == 'freesurfer8.0':
+            fs_path = os.path.join(subject_folder, dirname, os.path.basename(subject_folder))
+        else:
+            fs_path = os.path.join(subject_folder, dirname)
+
+        if os.path.exists(fs_path):
+            # Check for key FreeSurfer files
+            aparc_aseg = os.path.join(fs_path, 'mri', 'aparc+aseg.mgz')
+            if os.path.exists(aparc_aseg):
+                available_versions[version] = fs_path
+    
+    if not available_versions:
+        return None, None, "No valid FreeSurfer reconstruction found"
+    
+    # Select best version with appropriate warnings
+    if 'freesurfer8.0' in available_versions:
+        return 'freesurfer8.0', available_versions['freesurfer8.0'], None
+    elif 'FreeSurfer7' in available_versions:
+        warning = "Using FreeSurfer 7 - consider upgrading to FreeSurfer 8.0 for optimal results"
+        return 'FreeSurfer7', available_versions['FreeSurfer7'], warning
+    else:
+        warning = "WARNING: Using FreeSurfer 5.3 - strongly recommend upgrading to FreeSurfer 7+ for better results"
+        return 'FreeSurfer', available_versions['FreeSurfer'], warning
+
+def find_freesurfer_files(fs_path, is_nhp=False):
+    """
+    Find required FreeSurfer files for connectome generation.
+    Returns paths to aparc+aseg.mgz and other needed files.
+    """
+    if is_nhp:
+        return None  # NHPs don't use FreeSurfer
+    
+    files = {
+        'aparc_aseg': os.path.join(fs_path, 'mri', 'aparc+aseg.mgz'),
+        'aparc_dk': os.path.join(fs_path, 'mri', 'aparc.DKTatlas+aseg.mgz'),
+        'aparc_destrieux': os.path.join(fs_path, 'mri', 'aparc.a2009s+aseg.mgz'),
+        'orig': os.path.join(fs_path, 'mri', 'orig.mgz'),
+        'brain': os.path.join(fs_path, 'mri', 'brain.mgz')
+    }
+    
+    # Check which files exist
+    available_files = {}
+    for key, path in files.items():
+        if os.path.exists(path):
+            available_files[key] = path
+    
+    return available_files
+
+def select_parcellation_strategy(subject_folder, is_nhp=False):
+    """
+    Determine the best parcellation strategy based on available data.
+    Returns strategy info for both humans and NHPs.
+    """
+    if is_nhp:
+        return {
+            'strategy': 'template_only',
+            'atlases': ['Brainnetome'],
+            'freesurfer_available': False,
+            'warning': None
+        }
+    
+    # For humans, check FreeSurfer availability
+    fs_version, fs_path, fs_warning = detect_freesurfer_version(subject_folder)
+    
+    if fs_version:
+        fs_files = find_freesurfer_files(fs_path)
+        
+        # Determine available atlases
+        available_atlases = ['Brainnetome']  # Always available via template
+        
+        if 'aparc_aseg' in fs_files:
+            available_atlases.append('FreeSurfer_DK')
+        if 'aparc_destrieux' in fs_files:
+            available_atlases.append('FreeSurfer_Destrieux')
+        if 'aparc_dk' in fs_files:
+            available_atlases.append('FreeSurfer_DKT')
+            
+        return {
+            'strategy': 'freesurfer_plus_template',
+            'atlases': available_atlases,
+            'freesurfer_available': True,
+            'freesurfer_version': fs_version,
+            'freesurfer_path': fs_path,
+            'freesurfer_files': fs_files,
+            'warning': fs_warning
+        }
+    else:
+        return {
+            'strategy': 'template_only',
+            'atlases': ['Brainnetome'],
+            'freesurfer_available': False,
+            'warning': "No FreeSurfer data found - using template-based parcellation only"
+        }
+
+def create_enhanced_replacements(input_path, output_path, is_nhp=False):
+    """
+    Enhanced replacement dictionary that includes FreeSurfer paths when available.
+    """
+    # Get basic replacements (your existing logic)
+    large_mosaic, small_mosaic = find_largest_and_smallest_MOSAIC(input_path)
+    mosaic_json = read_mosaic_json(large_mosaic)
+    larger_prefix, smaller_prefix, lower_case_code = parse_dir_codes(large_mosaic, small_mosaic)
+    readouttime = mosaic_json['TotalReadoutTime']
+    repetitiontime = mosaic_json['RepetitionTime']
+    
+    matching_t1w_files = find_t1_image(input_path)
+    matching_flair_files = find_flair_image(input_path)
+    
+    # Handle masks
+    if is_nhp:
+        matching_mask_file = matching_t1w_files[0].replace('.nii', '_pre_mask.nii.gz')
+    else:
+        matching_brainmask_images = find_t1_brainmask_image(input_path)
+        matching_mask_file = matching_brainmask_images[0]
+
+    # Base replacements
+    replacements = {
+        "INPUT": input_path,
+        "OUTPUT": output_path,
+        "ANAT": matching_t1w_files[0],
+        "FLAIR": matching_flair_files[0],
+        "TEMPLATE": '/templates',
+        "MASK": matching_mask_file,
+        "PIXDIM4": str(repetitiontime),
+        "READOUTTIME": str(readouttime),
+        "PRIMARY": larger_prefix,
+        "SECONDARY": smaller_prefix,
+        "PE_DIR": lower_case_code
+    }
+    
+    # Add FreeSurfer-specific replacements for humans
+    if not is_nhp:
+        parcellation_info = select_parcellation_strategy(input_path, is_nhp)
+        
+        if parcellation_info['freesurfer_available']:
+            fs_files = parcellation_info['freesurfer_files']
+            replacements.update({
+                "FREESURFER_DIR": parcellation_info['freesurfer_path'],
+                "FS_APARC_ASEG": fs_files.get('aparc_aseg', ''),
+                "FS_APARC_DK": fs_files.get('aparc_dk', ''),
+                "FS_APARC_DESTRIEUX": fs_files.get('aparc_destrieux', ''),
+                "FS_BRAIN": fs_files.get('brain', ''),
+                "FS_VERSION": parcellation_info['freesurfer_version']
+            })
+        else:
+            # Provide empty values if FreeSurfer not available
+            replacements.update({
+                "FREESURFER_DIR": "",
+                "FS_APARC_ASEG": "",
+                "FS_APARC_DK": "",
+                "FS_APARC_DESTRIEUX": "",
+                "FS_BRAIN": "",
+                "FS_VERSION": "none"
+            })
+    
+    return replacements, parcellation_info if not is_nhp else None
+
+def load_commands_enhanced(file_path, input_path, output_path, is_nhp=False, rerun=False):
+    """
+    Enhanced version of load_commands that handles FreeSurfer integration and species-specific processing.
+    """
+    # Load JSON commands file
+    with open(file_path, 'r') as f:
+        data = json.load(f)
+
+    # Get enhanced replacements including FreeSurfer paths
+    replacements, parcellation_info = create_enhanced_replacements(input_path, output_path, is_nhp)
+    
+    # Add subject name placeholder (will be filled in main)
+    replacements['SUBJECT_NAME'] = 'PLACEHOLDER_SUBJECT'
+    replacements['SPECIES'] = 'nhp' if is_nhp else 'human'
+    
+    commands = []
+    skipped_steps = []
+    
+    # Log FreeSurfer information for humans
+    if not is_nhp and parcellation_info:
+        if parcellation_info['warning']:
+            print(f"WARNING: {parcellation_info['warning']}")
+        
+        print(f"FreeSurfer Strategy: {parcellation_info['strategy']}")
+        print(f"Available Atlases: {', '.join(parcellation_info['atlases'])}")
+        
+        if parcellation_info['freesurfer_available']:
+            print(f"FreeSurfer Version: {parcellation_info['freesurfer_version']}")
+            print(f"FreeSurfer Path: {parcellation_info['freesurfer_path']}")
+
+    for step in data['steps']:
+        step_name = step['name']
+        
+        # Check if step should be run for this species
+        if 'species' in step:
+            if step['species'] == 'human' and is_nhp:
+                skipped_steps.append(f"{step_name} (NHP - human only)")
+                continue
+            elif step['species'] == 'nhp' and not is_nhp:
+                skipped_steps.append(f"{step_name} (Human - NHP only)")
+                continue
+        
+        # Check if step requires specific FreeSurfer files (for humans)
+        if not is_nhp and 'requires' in step:
+            required_file = step['requires']
+            if required_file not in replacements or not replacements[required_file]:
+                skipped_steps.append(f"{step_name} (Missing: {required_file})")
+                continue
+        
+        print(f"- Including step: {step_name}")
+        
+        # Build validation output path
+        validation_output = step['validation_output']
+        for placeholder, value in replacements.items():
+            validation_output = validation_output.replace(placeholder, value)
+        
+        # Build command
+        command = step['cmd']
+        for placeholder, value in replacements.items():
+            command = command.replace(placeholder, value)
+        
+        # Define output logs
+        log_file = os.path.join(output_path, f"{step_name}_log.txt")
+        command_with_logging = f"{command} > {log_file} 2>&1"
+        
+        if rerun:
+            commands.append(command_with_logging)
+        else:
+            commands.append(f'if [ ! -f {validation_output} ]; then\n  {command_with_logging}\nfi')
+    
+    # Log skipped steps
+    if skipped_steps:
+        print(f"\nSkipped Steps:")
+        for skipped in skipped_steps:
+            print(f"  - {skipped}")
+    
+    return commands
+
+
+
+def main_enhanced():
+    """Enhanced main function with FreeSurfer integration and improved logging."""
     parser = argparse.ArgumentParser(description='Generate SLURM batch files for given subject.')
     parser.add_argument('subject_name', type=str, help='Name of the subject')
     parser.add_argument('subject_folder', type=str, help='Path to the subject folder')
@@ -264,12 +517,13 @@ def main():
         print("ERROR: Both --nhp and --human flags cannot be set simultaneously.")
         return
 
-    print(f"Specie Selected: {'Non-Human Primate' if args.nhp else 'Human'}")
+    print(f"Subject: {args.subject_name}")
+    print(f"Species Selected: {'Non-Human Primate' if args.nhp else 'Human'}")
     
     # Check if DTI directory exists
     dti_directory = os.path.join(args.subject_folder, "DTI")
     if not os.path.exists(dti_directory):
-        print("DTI directory is not present")
+        print("ERROR: DTI directory is not present")
         exit(1)
         
     # Create output directories   
@@ -281,20 +535,72 @@ def main():
     load_global_config(args.config_file)
     
     # Build the mrtrix3 input files
+    print("\n=== BUILDING MRTRIX3 INPUTS ===")
     checker = ImageTypeChecker(args.subject_folder, args.config_file)
+    
+    # For humans, analyze FreeSurfer availability
+    if not args.nhp:
+        print("\n=== FREESURFER ANALYSIS ===")
+        parcellation_info = select_parcellation_strategy(args.subject_folder, args.nhp)
+        if parcellation_info['warning']:
+            print(f"WARNING: {parcellation_info['warning']}")
 
     # Build the skull-stripping command
-    input_t1=find_t1_image(args.subject_folder)
+    input_t1 = find_t1_image(args.subject_folder)
     skull_strip_cmd = create_skullstrip_command(input_t1[0], args.nhp)
         
     # Load commands and convert to a list
-    commands = load_commands(args.command_file, args.subject_folder, output_path, args.nhp, args.rerun)
+    print("\n=== BUILDING COMMAND LIST ===")
+    commands = load_commands_enhanced(args.command_file, args.subject_folder, output_path, args.nhp, args.rerun)
     
-    # create a bash shell
+    # Replace PLACEHOLDER_SUBJECT with actual subject name
+    commands = [cmd.replace('PLACEHOLDER_SUBJECT', args.subject_name) for cmd in commands]
+    
+    # Add final reporting command
+    species_flag = 'nhp' if args.nhp else 'human'
+    fs_version = 'none'
+    
+    if not args.nhp:
+        parcellation_info = select_parcellation_strategy(args.subject_folder, args.nhp)
+        if parcellation_info['freesurfer_available']:
+            fs_version = parcellation_info['freesurfer_version']
+    
+    reporting_cmd = f"""
+# Generate standardized report
+python3 /scripts/generate_standardized_report.py \\
+    --subject {args.subject_name} \\
+    --output_dir {output_path} \\
+    --species {species_flag} \\
+    --freesurfer_version {fs_version} \\
+    > {output_path}/reporting_log.txt 2>&1
+"""
+    commands.append(reporting_cmd)
+    
+    # Create a bash shell script
+    print("\n=== CREATING BATCH SCRIPT ===")
     batch_script = create_bash_script(commands, os.path.join(output_path, f"{args.subject_name}_script.sh"))
+    
+    # Create SLURM batch file
     slurm_creator = SLURMFileCreator(args.subject_name, config)
     slurm_creator.create_bind_string(args.subject_folder)
     slurm_creator.create_batch_file(batch_script, args.nhp, skull_strip_cmd)
+    
+    print(f"\n=== PIPELINE PREPARATION COMPLETE ===")
+    print(f"Subject: {args.subject_name}")
+    print(f"Species: {'NHP' if args.nhp else 'Human'}")
+    print(f"Output Directory: {output_path}")
+    print(f"Total Commands: {len(commands)}")
+    
+    if not args.nhp:
+        print(f"FreeSurfer Version: {fs_version}")
+    
+    print(f"Batch Script: {batch_script}")
+    print(f"Ready for SLURM submission!")
+
+# You can also create a wrapper function to maintain backward compatibility
+def main():
+    """Wrapper to maintain backward compatibility."""
+    main_enhanced()
 
 if __name__ == "__main__":
     main()
