@@ -27,3 +27,4 @@ test*.py
 *.png
 *.pdf
 *.txt
+slurm-*

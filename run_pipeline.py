@@ -215,6 +215,40 @@ def create_skullstrip_command(input_image, is_nhp):
 def create_bash_script(commands, output_file):
     with open(output_file, 'w') as f:
         f.write("#!/bin/bash\n")
+        f.write("\n# Set up environment variables for MRtrix3 and FreeSurfer\n")
+        f.write("# Fix for MRtrix3 path - explicitly set to /opt/mrtrix3 if it exists\n")
+        f.write("if [ -d '/opt/mrtrix3' ]; then\n")
+        f.write("    export MRTRIX3_DIR='/opt/mrtrix3'\n")
+        f.write("elif [ -d '/usr/local/mrtrix3' ]; then\n")
+        f.write("    export MRTRIX3_DIR='/usr/local/mrtrix3'\n")
+        f.write("elif [ -d '/mrtrix3' ]; then\n")
+        f.write("    export MRTRIX3_DIR='/mrtrix3'\n")
+        f.write("else\n")
+        f.write("    echo 'WARNING: MRtrix3 directory not found, using default'\n")
+        f.write("    export MRTRIX3_DIR='/opt/mrtrix3'\n")
+        f.write("fi\n")
+        f.write("\n")
+        f.write("# Set FreeSurfer path\n")
+        f.write("if [ -d '/opt/freesurfer' ]; then\n")
+        f.write("    export FREESURFER_HOME='/opt/freesurfer'\n")
+        f.write("elif [ -d '/usr/local/freesurfer' ]; then\n")
+        f.write("    export FREESURFER_HOME='/usr/local/freesurfer'\n")
+        f.write("elif [ -d '/freesurfer' ]; then\n")
+        f.write("    export FREESURFER_HOME='/freesurfer'\n")
+        f.write("else\n")
+        f.write("    echo 'WARNING: FreeSurfer directory not found'\n")
+        f.write("    export FREESURFER_HOME='/opt/freesurfer'\n")
+        f.write("fi\n")
+        f.write("\n")
+        f.write("echo \"Using MRTRIX3_DIR: $MRTRIX3_DIR\"\n")
+        f.write("echo \"Using FREESURFER_HOME: $FREESURFER_HOME\"\n")
+        f.write("\n")
+        f.write("# Verify critical files exist\n")
+        f.write("echo 'Checking MRtrix3 label conversion files...'\n")
+        f.write("ls -la \"$MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_default.txt\" 2>/dev/null || echo 'ERROR: fs_default.txt not found'\n")
+        f.write("ls -la \"$MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_a2009s.txt\" 2>/dev/null || echo 'ERROR: fs_a2009s.txt not found'\n")
+        f.write("ls -la \"$FREESURFER_HOME/FreeSurferColorLUT.txt\" 2>/dev/null || echo 'WARNING: FreeSurferColorLUT.txt not found'\n")
+        f.write("\n")
         for command in commands:
             f.write(command)
             f.write("\n")
@@ -475,8 +509,6 @@ def load_commands_enhanced(file_path, input_path, output_path, is_nhp=False, rer
     
     return commands
 
-
-
 def main_enhanced():
     """Enhanced main function with FreeSurfer integration and improved logging."""
     parser = argparse.ArgumentParser(description='Generate SLURM batch files for given subject.')
@@ -534,6 +566,19 @@ def main_enhanced():
     # Load config options into global var space        
     load_global_config(args.config_file)
     
+    # Ensure scripts directory exists and is accessible
+    scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts')
+    if not os.path.exists(scripts_dir):
+        print(f"ERROR: Scripts directory not found at {scripts_dir}")
+        print("Creating scripts directory...")
+        os.makedirs(scripts_dir, exist_ok=True)
+    
+    # Check if generate_standardized_report.py exists
+    report_script = os.path.join(scripts_dir, 'generate_standardized_report.py')
+    if not os.path.exists(report_script):
+        print(f"WARNING: generate_standardized_report.py not found at {report_script}")
+        print("The reporting step may fail. Please ensure the script is in the scripts/ directory.")
+    
     # Build the mrtrix3 input files
     print("\n=== BUILDING MRTRIX3 INPUTS ===")
     checker = ImageTypeChecker(args.subject_folder, args.config_file)
@@ -590,6 +635,7 @@ python3 /scripts/generate_standardized_report.py \\
     print(f"Species: {'NHP' if args.nhp else 'Human'}")
     print(f"Output Directory: {output_path}")
     print(f"Total Commands: {len(commands)}")
+    print(f"Scripts Directory: {scripts_dir}")
     
     if not args.nhp:
         print(f"FreeSurfer Version: {fs_version}")

@@ -7,10 +7,13 @@ class SLURMFileCreator:
         self.bind_string = ''
         self.subjectname = subjectname
         self.templatedir = os.path.abspath(self.config['templates'])
+        # Get the directory where the script is running from
+        self.scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts')
     
     def create_bind_string(self, input_directory):
         input_directory = os.path.abspath(input_directory)
-        self.bind_string = f"-B {input_directory}/:{input_directory} -B {self.templatedir}:/templates/"
+        # Add scripts directory binding
+        self.bind_string = f"-B {input_directory}/:{input_directory} -B {self.templatedir}:/templates/ -B {self.scripts_dir}:/scripts"
 
     def create_batch_file(self, shell_script, is_nhp, skull_strip=''):
         # Create jobs directory if it doesn't exist
