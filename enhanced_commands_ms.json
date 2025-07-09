@@ -53,7 +53,9 @@
     {
       "name": "step10-dwi2mask",
       "cmd": "dwi2mask OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/mask.mif -force",
-      "validation_output": "OUTPUT/mask.mif"
+      "validation_output": "OUTPUT/mask.mif",
+      "description": "Generate brain mask from DWI data - will be skipped if pre-existing *epb51_T2_mask.nii is found",
+      "conditional": "skip_if_preexisting_dwi_mask"
     },
     {
       "name": "step11-dwi2response",

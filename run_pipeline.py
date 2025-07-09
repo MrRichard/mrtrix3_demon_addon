@@ -26,6 +26,29 @@ def find_t1_brainmask_image(input_path):
     
     return matching_files
 
+def find_dwi_brainmask_image(input_path):
+    """
+    Find pre-existing diffusion brain mask (*epb51_T2_mask.nii) in the DTI folder.
+    This is used for HUMAN processing only. NHP processing uses T1w-based masks.
+    """
+    # Look in the DTI folder for the pre-existing diffusion brain mask
+    dti_folder = os.path.join(input_path, 'DTI')
+    pattern = os.path.join(dti_folder, '*epb51_T2_mask.nii')
+    matching_files = glob.glob(pattern)
+    
+    if not matching_files:
+        # Also try with .nii.gz extension
+        pattern_gz = os.path.join(dti_folder, '*epb51_T2_mask.nii.gz')
+        matching_files = glob.glob(pattern_gz)
+    
+    if matching_files:
+        print(f"Found pre-existing DWI brain mask: {matching_files[0]}")
+        return matching_files
+    else:
+        print(f"WARNING: No pre-existing DWI brain mask found in {dti_folder}")
+        print("Expected pattern: *epb51_T2_mask.nii or *epb51_T2_mask.nii.gz")
+        return []
+
 def find_t2_image(input_path):
     # find T1 anat file
     pattern = os.path.join(os.path.join(input_path,'nifti'), '*-spc2*.info')
@@ -382,12 +405,27 @@ def create_enhanced_replacements(input_path, output_path, is_nhp=False):
     matching_t1w_files = find_t1_image(input_path)
     matching_flair_files = find_flair_image(input_path)
     
-    # Handle masks
+    # Handle T1w masks (existing logic)
     if is_nhp:
-        matching_mask_file = matching_t1w_files[0].replace('.nii', '_pre_mask.nii.gz')
+        matching_t1_mask_file = matching_t1w_files[0].replace('.nii', '_pre_mask.nii.gz')
     else:
         matching_brainmask_images = find_t1_brainmask_image(input_path)
-        matching_mask_file = matching_brainmask_images[0]
+        matching_t1_mask_file = matching_brainmask_images[0]
+
+    # Handle DWI masks (NEW: use pre-existing diffusion brain mask for HUMANS ONLY)
+    if not is_nhp:
+        # For humans: Look for pre-existing DWI brain mask
+        matching_dwi_brainmask_images = find_dwi_brainmask_image(input_path)
+        if matching_dwi_brainmask_images:
+            matching_dwi_mask_file = matching_dwi_brainmask_images[0]
+            print(f'Using pre-existing DWI brain mask for human processing: {matching_dwi_mask_file}')
+        else:
+            matching_dwi_mask_file = ''
+            print('WARNING: No pre-existing DWI brain mask found - will use dwi2mask as fallback')
+    else:
+        # For NHPs: Use existing T1w-based approach (no DWI mask)
+        matching_dwi_mask_file = ''
+        print('NHP processing: Using T1w-based mask approach (no pre-existing DWI mask needed)')
 
     # Base replacements
     replacements = {
@@ -396,7 +434,8 @@ def create_enhanced_replacements(input_path, output_path, is_nhp=False):
         "ANAT": matching_t1w_files[0],
         "FLAIR": matching_flair_files[0],
         "TEMPLATE": '/templates',
-        "MASK": matching_mask_file,
+        "MASK": matching_t1_mask_file,  # T1w mask for anatomical processing
+        "DWI_MASK": matching_dwi_mask_file,  # NEW: DWI mask for diffusion processing
         "PIXDIM4": str(repetitiontime),
         "READOUTTIME": str(readouttime),
         "PRIMARY": larger_prefix,
@@ -449,6 +488,9 @@ def load_commands_enhanced(file_path, input_path, output_path, is_nhp=False, rer
     commands = []
     skipped_steps = []
     
+    # Check if we have a pre-existing DWI mask (only for humans)
+    has_existing_dwi_mask = not is_nhp and bool(replacements.get('DWI_MASK'))
+    
     # Log FreeSurfer information for humans
     if not is_nhp and parcellation_info:
         if parcellation_info['warning']:
@@ -460,6 +502,14 @@ def load_commands_enhanced(file_path, input_path, output_path, is_nhp=False, rer
         if parcellation_info['freesurfer_available']:
             print(f"FreeSurfer Version: {parcellation_info['freesurfer_version']}")
             print(f"FreeSurfer Path: {parcellation_info['freesurfer_path']}")
+
+    # Log DWI mask strategy
+    if is_nhp:
+        print("DWI Mask Strategy (NHP): Using T1w-based approach")
+    elif has_existing_dwi_mask:
+        print(f"DWI Mask Strategy (Human): Using pre-existing mask from {replacements['DWI_MASK']}")
+    else:
+        print("DWI Mask Strategy (Human): Will use dwi2mask as fallback")
 
     for step in data['steps']:
         step_name = step['name']
@@ -479,6 +529,11 @@ def load_commands_enhanced(file_path, input_path, output_path, is_nhp=False, rer
             if required_file not in replacements or not replacements[required_file]:
                 skipped_steps.append(f"{step_name} (Missing: {required_file})")
                 continue
+        
+        # Special handling for dwi2mask step when we have pre-existing mask (humans only)
+        if step_name == 'step10-dwi2mask' and has_existing_dwi_mask:
+            skipped_steps.append(f"{step_name} (Using pre-existing DWI mask for human)")
+            continue
         
         print(f"- Including step: {step_name}")
         
@@ -500,6 +555,30 @@ def load_commands_enhanced(file_path, input_path, output_path, is_nhp=False, rer
             commands.append(command_with_logging)
         else:
             commands.append(f'if [ ! -f {validation_output} ]; then\n  {command_with_logging}\nfi')
+    
+    # If we have a pre-existing DWI mask, add command to copy and convert it
+    if has_existing_dwi_mask:
+        # Insert the mask copying commands after step 9 (dwibiascorrect) and before step 11 (dwi2response)
+        dwi_mask_commands = [
+            f"# Copy and convert pre-existing DWI brain mask",
+            f"if [ ! -f {output_path}/mask.nii.gz ]; then",
+            f"  cp {replacements['DWI_MASK']} {output_path}/mask.nii.gz > {output_path}/step10-copy_dwi_mask_log.txt 2>&1",
+            f"fi",
+            f"if [ ! -f {output_path}/mask.mif ]; then",
+            f"  mrconvert {output_path}/mask.nii.gz {output_path}/mask.mif -force > {output_path}/step10-convert_dwi_mask_log.txt 2>&1",
+            f"fi"
+        ]
+        
+        # Find the index where we should insert these commands (after step 9)
+        insert_index = 0
+        for i, cmd in enumerate(commands):
+            if 'step9-dwibiascorrect' in cmd:
+                insert_index = i + 1
+                break
+        
+        # Insert the mask commands
+        for i, mask_cmd in enumerate(dwi_mask_commands):
+            commands.insert(insert_index + i, mask_cmd)
     
     # Log skipped steps
     if skipped_steps:
@@ -583,6 +662,19 @@ def main_enhanced():
     print("\n=== BUILDING MRTRIX3 INPUTS ===")
     checker = ImageTypeChecker(args.subject_folder, args.config_file)
     
+    # Check for pre-existing DWI brain mask (humans only)
+    print("\n=== DWI BRAIN MASK ANALYSIS ===")
+    if not args.nhp:
+        dwi_mask_files = find_dwi_brainmask_image(args.subject_folder)
+        if dwi_mask_files:
+            print(f"Found pre-existing DWI brain mask for human processing: {dwi_mask_files[0]}")
+            print("Pipeline will use this mask instead of generating one with dwi2mask")
+        else:
+            print("No pre-existing DWI brain mask found for human processing. Pipeline will use dwi2mask as fallback.")
+    else:
+        print("NHP processing: Using T1w-based mask approach (no pre-existing DWI mask search needed)")
+        dwi_mask_files = []
+    
     # For humans, analyze FreeSurfer availability
     if not args.nhp:
         print("\n=== FREESURFER ANALYSIS ===")
@@ -636,6 +728,13 @@ python3 /scripts/generate_standardized_report.py \\
     print(f"Output Directory: {output_path}")
     print(f"Total Commands: {len(commands)}")
     print(f"Scripts Directory: {scripts_dir}")
+    
+    if not args.nhp and dwi_mask_files:
+        print(f"DWI Mask (Human): Using pre-existing mask from {dwi_mask_files[0]}")
+    elif not args.nhp:
+        print("DWI Mask (Human): Will generate using dwi2mask")
+    else:
+        print("DWI Mask (NHP): Using T1w-based approach")
     
     if not args.nhp:
         print(f"FreeSurfer Version: {fs_version}")

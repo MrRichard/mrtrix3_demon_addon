@@ -28,3 +28,4 @@ test*.py
 *.pdf
 *.txt
 slurm-*
+*-tmp-*/
