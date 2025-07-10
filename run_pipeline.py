@@ -18,7 +18,7 @@ def find_t1_image(input_path):
 
 def find_t1_brainmask_image(input_path):
     # find T1 anat file
-    pattern = os.path.join(os.path.join(input_path,'nifti','cat12'), '*tfl3d116ns_bet_mask.nii.gz')
+    pattern = os.path.join(os.path.join(input_path,'nifti','cat12'), '*tfl3d116*_bet_mask.nii.gz') #-tfl3d116_bet.nii.gz
     matching_files = glob.glob(pattern)
     
     # Replace the suffix ".info" with ".nii" for each matching file

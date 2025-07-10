@@ -6,10 +6,14 @@ for x in ./jobs/3*.slurm; do
 
     cat <<EOL > qc_jobs/$sbatch_file
 #!/bin/bash
-#SBATCH --job-name=$job_basename
-#SBATCH --output=logs/${job_basename}.out
-#SBATCH --error=logs/${job_basename}.err
-#SBATCH --time=02:00:00
+#!/bin/bash 
+#SBATCH --job-name=mkQC_$job_basename 
+#SBATCH --output=logs/${job_basename}.out 
+#SBATCH --error=logs/${job_basename}.err 
+#SBATCH --time=01:00:00
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=10G
 
 module load singularity
 Xvfb :99 -ac -nolisten tcp -noreset -screen 0 1024x768x24 &
