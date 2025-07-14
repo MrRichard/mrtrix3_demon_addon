@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for x in ./jobs/3*.slurm; do
+for x in ./jobs/*.slurm; do
     job_basename=$(basename "$x" .slurm)
     sbatch_file="${job_basename}_new.slurm"
 

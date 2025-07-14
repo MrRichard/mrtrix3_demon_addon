@@ -60,7 +60,7 @@ def find_t2_image(input_path):
     return matching_files
 
 def find_flair_image(input_path):
-    # find T1 anat file
+    # find FLAIR image (optional - not used in current pipeline)
     pattern = os.path.join(os.path.join(input_path,'nifti'), '*-spcir*.info')
     matching_files = glob.glob(pattern)
     
@@ -68,6 +68,44 @@ def find_flair_image(input_path):
     matching_files = [f.replace('.info', '.nii') for f in matching_files]
     
     return matching_files
+
+def check_mrtrix3_inputs_exists(input_path):
+    """
+    Check if mrtrix3_inputs directory exists and contains valid files.
+    Returns (exists, is_valid, message)
+    """
+    mrtrix3_inputs_dir = os.path.join(input_path, "mrtrix3_inputs")
+    
+    if not os.path.exists(mrtrix3_inputs_dir):
+        return False, False, f"mrtrix3_inputs directory does not exist: {mrtrix3_inputs_dir}"
+    
+    if not os.path.isdir(mrtrix3_inputs_dir):
+        return False, False, f"mrtrix3_inputs exists but is not a directory: {mrtrix3_inputs_dir}"
+    
+    # Check for required files
+    required_patterns = [
+        '*_MOSAIC.nii.gz',  # DWI data
+        '*_MOSAIC.json'     # DWI metadata
+    ]
+    
+    missing_files = []
+    for pattern in required_patterns:
+        files = glob.glob(os.path.join(mrtrix3_inputs_dir, pattern))
+        if not files:
+            missing_files.append(pattern)
+    
+    if missing_files:
+        return True, False, f"mrtrix3_inputs directory exists but missing required files: {missing_files}"
+    
+    # Additional validation: check if we can find MOSAIC files for processing
+    try:
+        large_mosaic, small_mosaic = find_largest_and_smallest_MOSAIC(input_path)
+        if not large_mosaic or not small_mosaic:
+            return True, False, "mrtrix3_inputs directory exists but could not find valid MOSAIC files"
+    except Exception as e:
+        return True, False, f"mrtrix3_inputs directory exists but validation failed: {str(e)}"
+    
+    return True, True, f"Valid mrtrix3_inputs directory found: {mrtrix3_inputs_dir}"
 
 def find_largest_and_smallest_MOSAIC(input_path):
     # find the largest and smallest MOSAIC files in the mrtrix3_inputs directory
@@ -165,8 +203,9 @@ def load_commands(file_path, input_path, output_path, is_nhp=False, rerun=False)
     # Identify T1w input image
     matching_t1w_files = find_t1_image(input_path)
 
-    # Identify T2 FLAIR image
+    # Identify T2 FLAIR image (optional - not used in current pipeline)
     matching_flair_files = find_flair_image(input_path)
+    flair_file = matching_flair_files[0] if matching_flair_files else ""
 
     # Identify NHP brain masks
     matching_mask_file=''
@@ -405,6 +444,9 @@ def create_enhanced_replacements(input_path, output_path, is_nhp=False):
     matching_t1w_files = find_t1_image(input_path)
     matching_flair_files = find_flair_image(input_path)
     
+    # FLAIR is optional - not used in current pipeline
+    flair_file = matching_flair_files[0] if matching_flair_files else ""
+    
     # Handle T1w masks (existing logic)
     if is_nhp:
         matching_t1_mask_file = matching_t1w_files[0].replace('.nii', '_pre_mask.nii.gz')
@@ -432,7 +474,7 @@ def create_enhanced_replacements(input_path, output_path, is_nhp=False):
         "INPUT": input_path,
         "OUTPUT": output_path,
         "ANAT": matching_t1w_files[0],
-        "FLAIR": matching_flair_files[0],
+        "FLAIR": flair_file,  # Optional - not used in current pipeline
         "TEMPLATE": '/templates',
         "MASK": matching_t1_mask_file,  # T1w mask for anatomical processing
         "DWI_MASK": matching_dwi_mask_file,  # NEW: DWI mask for diffusion processing
@@ -603,6 +645,8 @@ def main_enhanced():
                         help='Force rerun of all steps', 
                         default=False,
                         required=False)
+    parser.add_argument('--force-rebuild-inputs', action='store_true',
+                        help='Force rebuild of mrtrix3_inputs directory even if it exists')
     
     # Mutually exclusive group for species selection
     group = parser.add_mutually_exclusive_group()
@@ -658,9 +702,32 @@ def main_enhanced():
         print(f"WARNING: generate_standardized_report.py not found at {report_script}")
         print("The reporting step may fail. Please ensure the script is in the scripts/ directory.")
     
-    # Build the mrtrix3 input files
+    # NEW: Check for existing mrtrix3_inputs directory
+    print("\n=== CHECKING MRTRIX3_INPUTS DIRECTORY ===")
+    inputs_exist, inputs_valid, inputs_message = check_mrtrix3_inputs_exists(args.subject_folder)
+    print(inputs_message)
+    
+    skip_inputs_build = False
+    if inputs_exist and inputs_valid and not args.force_rebuild_inputs:
+        print("✓ Valid mrtrix3_inputs directory found. Skipping dcm2niix and sorting procedures.")
+        skip_inputs_build = True
+    elif inputs_exist and not inputs_valid:
+        print("⚠ mrtrix3_inputs directory exists but is invalid. Will rebuild.")
+        skip_inputs_build = False
+    elif args.force_rebuild_inputs:
+        print("🔄 Force rebuild requested. Will rebuild mrtrix3_inputs directory.")
+        skip_inputs_build = False
+    else:
+        print("📁 mrtrix3_inputs directory not found. Will build from scratch.")
+        skip_inputs_build = False
+    
+    # Build the mrtrix3 input files (conditionally)
     print("\n=== BUILDING MRTRIX3 INPUTS ===")
-    checker = ImageTypeChecker(args.subject_folder, args.config_file)
+    if skip_inputs_build:
+        print("Skipping ImageTypeChecker processing - using existing mrtrix3_inputs")
+    else:
+        print("Running ImageTypeChecker to build mrtrix3_inputs")
+        checker = ImageTypeChecker(args.subject_folder, args.config_file)
     
     # Check for pre-existing DWI brain mask (humans only)
     print("\n=== DWI BRAIN MASK ANALYSIS ===")
@@ -728,6 +795,7 @@ python3 /scripts/generate_standardized_report.py \\
     print(f"Output Directory: {output_path}")
     print(f"Total Commands: {len(commands)}")
     print(f"Scripts Directory: {scripts_dir}")
+    print(f"mrtrix3_inputs: {'Reused existing' if skip_inputs_build else 'Built from scratch'}")
     
     if not args.nhp and dwi_mask_files:
         print(f"DWI Mask (Human): Using pre-existing mask from {dwi_mask_files[0]}")

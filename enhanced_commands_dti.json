@@ -1,0 +1,276 @@
+{
+  "pipeline_type": "single_shell_dti",
+  "description": "MRtrix3 pipeline for single-shell DTI data with fieldmap-based or simplified distortion correction",
+  "version": "1.0",
+  "steps": [
+    {
+      "name": "step1-mrconvert_DTI",
+      "cmd": "mrconvert INPUT/mrtrix3_inputs/DTI_MOSAIC.nii.gz OUTPUT/DTI.mif -fslgrad INPUT/mrtrix3_inputs/DTI_MOSAIC.bvec INPUT/mrtrix3_inputs/DTI_MOSAIC.bval -force",
+      "validation_output": "OUTPUT/DTI.mif",
+      "description": "Convert DTI NIFTI to MIF format with gradient information"
+    },
+    {
+      "name": "step2-dwiextract_b0",
+      "cmd": "dwiextract OUTPUT/DTI.mif OUTPUT/DTI_b0s.mif -bzero -force",
+      "validation_output": "OUTPUT/DTI_b0s.mif",
+      "description": "Extract all b=0 images from DTI data"
+    },
+    {
+      "name": "step3-mrconvert_mean_b0",
+      "cmd": "mrmath OUTPUT/DTI_b0s.mif mean OUTPUT/DTI_b0_mean.mif -axis 3 -force",
+      "validation_output": "OUTPUT/DTI_b0_mean.mif",
+      "description": "Calculate mean b=0 image for registration reference"
+    },
+    {
+      "name": "step4-dwidenoise",
+      "cmd": "dwidenoise OUTPUT/DTI.mif OUTPUT/dwi_den.mif -noise OUTPUT/noise.mif -force -nthreads 8",
+      "validation_output": "OUTPUT/dwi_den.mif",
+      "description": "MP-PCA denoising of DTI data"
+    },
+    {
+      "name": "step5-mrcalc_denoise_residual",
+      "cmd": "mrcalc OUTPUT/DTI.mif OUTPUT/dwi_den.mif -subtract OUTPUT/residual.mif -force",
+      "validation_output": "OUTPUT/residual.mif",
+      "description": "Calculate denoising residual for quality assessment"
+    },
+    {
+      "name": "step6-dwifslpreproc_simple",
+      "cmd": "dwifslpreproc OUTPUT/dwi_den.mif OUTPUT/dwi_den_preproc.mif -pe_dir PE_DIR -eddy_options \"--slm=linear --data_is_shelled\" -force -nthreads 8",
+      "validation_output": "OUTPUT/dwi_den_preproc.mif",
+      "description": "FSL-based preprocessing with eddy current and motion correction (no reverse PE)"
+    },
+    {
+      "name": "step7-dwibiascorrect",
+      "cmd": "dwibiascorrect ants OUTPUT/dwi_den_preproc.mif OUTPUT/dwi_den_preproc_unbiased.mif -bias OUTPUT/bias.mif -force",
+      "validation_output": "OUTPUT/dwi_den_preproc_unbiased.mif",
+      "description": "ANTs N4 bias field correction"
+    },
+    {
+      "name": "step8-dwi2mask",
+      "cmd": "dwi2mask OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/mask.mif -force",
+      "validation_output": "OUTPUT/mask.mif",
+      "description": "Generate brain mask from DTI data"
+    },
+    {
+      "name": "step9-dwi2response_tournier",
+      "cmd": "dwi2response tournier OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_tournier.txt -voxels OUTPUT/voxels_tournier.mif -force",
+      "validation_output": "OUTPUT/voxels_tournier.mif",
+      "description": "Tournier response function estimation for single-shell DTI"
+    },
+    {
+      "name": "step10-dwi2fod_csd",
+      "cmd": "dwi2fod csd -mask OUTPUT/mask.mif OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_tournier.txt OUTPUT/wmfod_tournier.mif -force",
+      "validation_output": "OUTPUT/wmfod_tournier.mif",
+      "description": "Single-shell CSD FOD estimation (white matter only)"
+    },
+    {
+      "name": "step11-mtnormalise_single",
+      "cmd": "mtnormalise OUTPUT/wmfod_tournier.mif OUTPUT/wmfod_norm_tournier.mif -mask OUTPUT/mask.mif -debug -force",
+      "validation_output": "OUTPUT/wmfod_norm_tournier.mif",
+      "description": "Single-tissue FOD intensity normalization"
+    },
+    {
+      "name": "step12-anat_convert",
+      "cmd": "mrconvert ANAT OUTPUT/anat.mif -force",
+      "validation_output": "OUTPUT/anat.mif",
+      "description": "Convert anatomical image to MIF format"
+    },
+    {
+      "name": "step13-5ttgen",
+      "cmd": "5ttgen fsl OUTPUT/anat.mif OUTPUT/5tt_nocoreg.mif",
+      "validation_output": "OUTPUT/5tt_nocoreg.mif",
+      "description": "Generate 5-tissue-type segmentation"
+    },
+    {
+      "name": "step14-dwiextract_final_b0",
+      "cmd": "dwiextract OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/dwi_den_preproc_b0.mif -bzero",
+      "validation_output": "OUTPUT/dwi_den_preproc_b0.mif",
+      "description": "Extract b=0 from preprocessed data"
+    },
+    {
+      "name": "step15-mrmath_mean_final_b0",
+      "cmd": "mrmath OUTPUT/dwi_den_preproc_b0.mif mean OUTPUT/mean_b0_processed.mif -axis 3",
+      "validation_output": "OUTPUT/mean_b0_processed.mif",
+      "description": "Calculate mean b=0 from preprocessed data"
+    },
+    {
+      "name": "step16-mrconvert_b0_to_FSL",
+      "cmd": "mrconvert OUTPUT/mean_b0_processed.mif OUTPUT/mean_b0_processed.nii.gz",
+      "validation_output": "OUTPUT/mean_b0_processed.nii.gz",
+      "description": "Convert mean b=0 to NIFTI for FSL registration"
+    },
+    {
+      "name": "step17-mrconvert_seg_to_FSL",
+      "cmd": "mrconvert OUTPUT/5tt_nocoreg.mif OUTPUT/5tt_nocoreg.nii.gz",
+      "validation_output": "OUTPUT/5tt_nocoreg.nii.gz",
+      "description": "Convert 5TT segmentation to NIFTI"
+    },
+    {
+      "name": "step18-fslroi",
+      "cmd": "fslroi OUTPUT/5tt_nocoreg.nii.gz OUTPUT/5tt_vol0.nii.gz 0 1",
+      "validation_output": "OUTPUT/5tt_vol0.nii.gz",
+      "description": "Extract first volume (GM) from 5TT segmentation"
+    },
+    {
+      "name": "step19-flirt_coregister",
+      "cmd": "flirt -in OUTPUT/mean_b0_processed.nii.gz -ref OUTPUT/5tt_vol0.nii.gz -interp nearestneighbour -dof 6 -omat OUTPUT/diff2struct_fsl.mat",
+      "validation_output": "OUTPUT/diff2struct_fsl.mat",
+      "description": "Coregister diffusion to structural (6 DOF)"
+    },
+    {
+      "name": "step20-transformconvert",
+      "cmd": "transformconvert OUTPUT/diff2struct_fsl.mat OUTPUT/mean_b0_processed.nii.gz OUTPUT/5tt_nocoreg.nii.gz flirt_import OUTPUT/diff2struct_mrtrix.txt",
+      "validation_output": "OUTPUT/diff2struct_mrtrix.txt",
+      "description": "Convert FSL transformation to MRtrix format"
+    },
+    {
+      "name": "step21-mrtransform",
+      "cmd": "mrtransform OUTPUT/5tt_nocoreg.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/5tt_coreg.mif",
+      "validation_output": "OUTPUT/5tt_coreg.mif",
+      "description": "Apply transformation to bring 5TT to diffusion space"
+    },
+    {
+      "name": "step22-5tt2gmwmi",
+      "cmd": "5tt2gmwmi OUTPUT/5tt_coreg.mif OUTPUT/gmwmSeed_coreg.mif",
+      "validation_output": "OUTPUT/gmwmSeed_coreg.mif",
+      "description": "Generate GM-WM interface for seeding"
+    },
+    {
+      "name": "step23-tckgen",
+      "cmd": "tckgen -act OUTPUT/5tt_coreg.mif -backtrack -seed_gmwmi OUTPUT/gmwmSeed_coreg.mif -nthreads 8 -maxlength 250 -cutoff 0.06 -select 10000000 OUTPUT/wmfod_norm_tournier.mif OUTPUT/tracks_10M_tournier.tck",
+      "validation_output": "OUTPUT/tracks_10M_tournier.tck",
+      "description": "Generate 10M streamlines using single-shell FODs"
+    },
+    {
+      "name": "step24-tckedit",
+      "cmd": "tckedit OUTPUT/tracks_10M_tournier.tck -number 200k OUTPUT/smallerTracks_200k_tournier.tck",
+      "validation_output": "OUTPUT/smallerTracks_200k_tournier.tck",
+      "description": "Create subset of 200k tracks for visualization"
+    },
+    {
+      "name": "step25-tcksift",
+      "cmd": "tcksift -fd_scale_gm -act OUTPUT/5tt_coreg.mif -term_number 1000000 OUTPUT/tracks_10M_tournier.tck OUTPUT/wmfod_norm_tournier.mif OUTPUT/sift_1M_tournier.tck",
+      "validation_output": "OUTPUT/sift_1M_tournier.tck",
+      "description": "SIFT filtering to 1M biologically plausible streamlines"
+    },
+    {
+      "name": "step26-convert_mask",
+      "cmd": "mrconvert OUTPUT/mask.mif OUTPUT/mask.nii.gz",
+      "validation_output": "OUTPUT/mask.nii.gz",
+      "description": "Convert mask to NIFTI format"
+    },
+    {
+      "name": "step27-apply_mask",
+      "cmd": "fslmaths OUTPUT/mean_b0_processed.nii.gz -mas OUTPUT/mask.nii.gz OUTPUT/mean_b0_brain.nii.gz",
+      "validation_output": "OUTPUT/mean_b0_brain.nii.gz",
+      "description": "Apply brain mask to mean b=0 image"
+    },
+    {
+      "name": "step28-antsReg_template",
+      "cmd": "/opt/ants/antsRegistrationSyN.sh -d 3 -m TEMPLATE/mni_icbm152_nlin_sym_09a/mni_icbm152_t2_relx_tal_nlin_sym_09a.nii -f OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_MNI_to_native_ -n 8",
+      "validation_output": "OUTPUT/dwi_MNI_to_native_Warped.nii.gz",
+      "description": "Register template to native space using ANTs"
+    },
+    {
+      "name": "step29-BN_transform",
+      "cmd": "/opt/ants/antsApplyTransforms -d 3 -i TEMPLATE/mni_icbm152_nlin_sym_09a/Brainnetome.nii.gz -r OUTPUT/mean_b0_brain.nii.gz -o OUTPUT/dwi_Brainnetome.nii.gz -t OUTPUT/dwi_MNI_to_native_1Warp.nii.gz -t OUTPUT/dwi_MNI_to_native_0GenericAffine.mat -v -n nearestneighbor",
+      "validation_output": "OUTPUT/dwi_Brainnetome.nii.gz",
+      "species": "both",
+      "description": "Transform Brainnetome atlas to native diffusion space"
+    },
+    {
+      "name": "step30-freesurfer_labelconvert_DK",
+      "cmd": "labelconvert FS_APARC_ASEG $FREESURFER_HOME/FreeSurferColorLUT.txt $MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_default.txt OUTPUT/nodes_freesurfer_DK.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_DK.mif",
+      "species": "human",
+      "requires": "FS_APARC_ASEG",
+      "description": "Convert FreeSurfer DK atlas to MRtrix format"
+    },
+    {
+      "name": "step31-freesurfer_labelsgmfix_DK",
+      "cmd": "labelsgmfix OUTPUT/nodes_freesurfer_DK.mif FS_BRAIN $MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_default.txt OUTPUT/nodes_freesurfer_DK_fixed.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_DK_fixed.mif",
+      "species": "human",
+      "requires": "FS_APARC_ASEG",
+      "description": "Fix FreeSurfer segmentation issues"
+    },
+    {
+      "name": "step32-freesurfer_transform_DK",
+      "cmd": "mrtransform OUTPUT/nodes_freesurfer_DK_fixed.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/nodes_freesurfer_DK_dwi.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_DK_dwi.mif",
+      "species": "human",
+      "requires": "FS_APARC_ASEG",
+      "description": "Transform FreeSurfer DK atlas to diffusion space"
+    },
+    {
+      "name": "step33-freesurfer_labelconvert_Destrieux",
+      "cmd": "labelconvert FS_APARC_DESTRIEUX $FREESURFER_HOME/FreeSurferColorLUT.txt $MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_a2009s.txt OUTPUT/nodes_freesurfer_Destrieux.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_Destrieux.mif",
+      "species": "human",
+      "requires": "FS_APARC_DESTRIEUX",
+      "description": "Convert FreeSurfer Destrieux atlas to MRtrix format"
+    },
+    {
+      "name": "step34-freesurfer_transform_Destrieux",
+      "cmd": "mrtransform OUTPUT/nodes_freesurfer_Destrieux.mif -linear OUTPUT/diff2struct_mrtrix.txt -inverse OUTPUT/nodes_freesurfer_Destrieux_dwi.mif",
+      "validation_output": "OUTPUT/nodes_freesurfer_Destrieux_dwi.mif",
+      "species": "human",
+      "requires": "FS_APARC_DESTRIEUX",
+      "description": "Transform FreeSurfer Destrieux atlas to diffusion space"
+    },
+    {
+      "name": "step35-connectome_Brainnetome_counts",
+      "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_tournier.tck OUTPUT/dwi_Brainnetome.nii.gz OUTPUT/connectome_Brainnetome_counts.csv -out_assignments OUTPUT/assignments_Brainnetome_counts.csv",
+      "validation_output": "OUTPUT/connectome_Brainnetome_counts.csv",
+      "species": "both",
+      "description": "Generate Brainnetome connectome (streamline counts)"
+    },
+    {
+      "name": "step36-connectome_Brainnetome_scaled",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_tournier.tck OUTPUT/dwi_Brainnetome.nii.gz OUTPUT/connectome_Brainnetome_scaled.csv -out_assignments OUTPUT/assignments_Brainnetome_scaled.csv",
+      "validation_output": "OUTPUT/connectome_Brainnetome_scaled.csv",
+      "species": "both",
+      "description": "Generate Brainnetome connectome (volume-normalized)"
+    },
+    {
+      "name": "step37-connectome_FreeSurfer_DK_counts",
+      "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_tournier.tck OUTPUT/nodes_freesurfer_DK_dwi.mif OUTPUT/connectome_FreeSurfer_DK_counts.csv -out_assignments OUTPUT/assignments_FreeSurfer_DK_counts.csv",
+      "validation_output": "OUTPUT/connectome_FreeSurfer_DK_counts.csv",
+      "species": "human",
+      "requires": "FS_APARC_ASEG",
+      "description": "Generate FreeSurfer DK connectome (streamline counts)"
+    },
+    {
+      "name": "step38-connectome_FreeSurfer_DK_scaled",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_tournier.tck OUTPUT/nodes_freesurfer_DK_dwi.mif OUTPUT/connectome_FreeSurfer_DK_scaled.csv -out_assignments OUTPUT/assignments_FreeSurfer_DK_scaled.csv",
+      "validation_output": "OUTPUT/connectome_FreeSurfer_DK_scaled.csv",
+      "species": "human",
+      "requires": "FS_APARC_ASEG",
+      "description": "Generate FreeSurfer DK connectome (volume-normalized)"
+    },
+    {
+      "name": "step39-connectome_FreeSurfer_Destrieux_counts",
+      "cmd": "tck2connectome -symmetric -zero_diagonal OUTPUT/sift_1M_tournier.tck OUTPUT/nodes_freesurfer_Destrieux_dwi.mif OUTPUT/connectome_FreeSurfer_Destrieux_counts.csv -out_assignments OUTPUT/assignments_FreeSurfer_Destrieux_counts.csv",
+      "validation_output": "OUTPUT/connectome_FreeSurfer_Destrieux_counts.csv",
+      "species": "human",
+      "requires": "FS_APARC_DESTRIEUX",
+      "description": "Generate FreeSurfer Destrieux connectome (streamline counts)"
+    },
+    {
+      "name": "step40-connectome_FreeSurfer_Destrieux_scaled",
+      "cmd": "tck2connectome -symmetric -zero_diagonal -scale_invnodevol OUTPUT/sift_1M_tournier.tck OUTPUT/nodes_freesurfer_Destrieux_dwi.mif OUTPUT/connectome_FreeSurfer_Destrieux_scaled.csv -out_assignments OUTPUT/assignments_FreeSurfer_Destrieux_scaled.csv",
+      "validation_output": "OUTPUT/connectome_FreeSurfer_Destrieux_scaled.csv",
+      "species": "human",
+      "requires": "FS_APARC_DESTRIEUX",
+      "description": "Generate FreeSurfer Destrieux connectome (volume-normalized)"
+    }
+  ],
+  "notes": {
+    "distortion_correction": "Uses simplified eddy-based correction without reverse phase-encoding data",
+    "shell_configuration": "Optimized for single-shell DTI (b~1000 s/mm²)",
+    "response_function": "Tournier algorithm for single-shell data",
+    "fod_estimation": "Single-shell CSD (white matter only)",
+    "normalization": "Single-tissue normalization",
+    "input_requirements": "Requires DTI_MOSAIC.nii.gz instead of A2P/P2A pair"
+  }
+}
