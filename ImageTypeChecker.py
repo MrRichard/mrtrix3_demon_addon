@@ -118,7 +118,8 @@ class ImageTypeChecker:
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         
-        command = f"dcm2niix -z y -m y -b y -i y -s y -o {output_path} -b y {dicom_path}"
+        command = f"dcm2niix -z y -m y -b y -i y -s y -o {output_path} {dicom_path}"
+        print(command)
         subprocess.run(command, shell=True, check=True)
 
     def find_file(self, base_name, extensions):

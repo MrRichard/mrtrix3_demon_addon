@@ -384,7 +384,7 @@ class ConnectomeReporter:
         self.logger = logging.getLogger(__name__)
 
     def discover_connectomes(self):
-        """Discover all available connectome files in the output directory."""
+        """Discover all available connectome files in the output directory and common subdirectories."""
         connectome_patterns = {
             'Brainnetome_counts': 'connectome_Brainnetome_counts.csv',
             'Brainnetome_scaled': 'connectome_Brainnetome_scaled.csv',
@@ -394,15 +394,60 @@ class ConnectomeReporter:
             'FreeSurfer_Destrieux_scaled': 'connectome_FreeSurfer_Destrieux_scaled.csv'
         }
         
+        # Common subdirectories where connectomes might be located
+        search_directories = [
+            self.output_dir,
+            os.path.join(self.output_dir, 'DTI', 'mrtrix3_outputs'),
+            os.path.join(self.output_dir, 'mrtrix3_outputs'),
+            os.path.join(self.output_dir, 'connectomes'),
+            os.path.join(self.output_dir, 'results')
+        ]
+        
         available_connectomes = {}
         
-        for name, filename in connectome_patterns.items():
-            filepath = os.path.join(self.output_dir, filename)
-            if os.path.exists(filepath):
-                available_connectomes[name] = filepath
-                self.logger.info(f"Found connectome: {name}")
-            else:
-                self.logger.debug(f"Connectome not found: {name}")
+        for search_dir in search_directories:
+            if not os.path.exists(search_dir):
+                self.logger.debug(f"Search directory does not exist: {search_dir}")
+                continue
+                
+            self.logger.info(f"Searching for connectomes in: {search_dir}")
+            
+            for name, filename in connectome_patterns.items():
+                if name in available_connectomes:  # Already found this connectome
+                    continue
+                    
+                filepath = os.path.join(search_dir, filename)
+                if os.path.exists(filepath):
+                    available_connectomes[name] = filepath
+                    self.logger.info(f"Found connectome: {name} in {search_dir}")
+            
+            # Also search for any CSV files that might be connectomes
+            try:
+                csv_files = glob.glob(os.path.join(search_dir, "*.csv"))
+                for csv_file in csv_files:
+                    filename = os.path.basename(csv_file)
+                    if 'connectome' in filename.lower() or 'matrix' in filename.lower():
+                        # Try to determine the type from filename
+                        connectome_key = filename.replace('.csv', '')
+                        if connectome_key not in available_connectomes.values():
+                            self.logger.info(f"Found potential connectome file: {csv_file}")
+                            # Only add if we haven't found a standard named version
+                            if not any(connectome_key.replace('_', '').lower() in existing_name.lower().replace('_', '') 
+                                    for existing_name in available_connectomes.keys()):
+                                available_connectomes[connectome_key] = csv_file
+            except Exception as e:
+                self.logger.debug(f"Error scanning for CSV files in {search_dir}: {e}")
+        
+        if not available_connectomes:
+            self.logger.warning("No connectome files found in any search directories")
+            # List what files are actually in the directories for debugging
+            for search_dir in search_directories:
+                if os.path.exists(search_dir):
+                    try:
+                        files = os.listdir(search_dir)
+                        self.logger.info(f"Files in {search_dir}: {files[:10]}...")  # Show first 10 files
+                    except Exception as e:
+                        self.logger.debug(f"Cannot list files in {search_dir}: {e}")
         
         return available_connectomes
 

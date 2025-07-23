@@ -9,11 +9,15 @@ import numpy as np
 
 def find_t1_image(input_path):
     """Find T1 anatomical file."""
-    pattern = os.path.join(os.path.join(input_path,'nifti'), '*-tfl3d116*.info')
+    pattern = os.path.join(os.path.join(input_path,'nifti'), '*-tfl3d116.nii*')
     matching_files = glob.glob(pattern)
+
+    if len(matching_files) == 0:
+        pattern = os.path.join(os.path.join(input_path,'nifti'), '*-tfl3d116ns.nii*')
+        matching_files = glob.glob(pattern)
     
     # Replace the suffix ".info" with ".nii" for each matching file
-    matching_files = [f.replace('.info', '.nii') for f in matching_files]
+    #matching_files = [f.replace('.info', '.nii') for f in matching_files]
     
     return matching_files
 
@@ -102,14 +106,14 @@ def find_dti_directory(subject_folder):
 
 def find_dwi_brainmask_image(dti_folder):
     """
-    Find pre-existing diffusion brain mask (*epb51_T2_mask.nii) in the DTI folder.
+    Find pre-existing diffusion brain mask (*epb0_T2_mask.nii) in the DTI folder.
     This is used for HUMAN processing only. NHP processing uses T1w-based masks.
     """
-    pattern = os.path.join(dti_folder, '*epb51_T2_mask.nii')
+    pattern = os.path.join(dti_folder, '*epb0_T2_bet_mask.nii')
     matching_files = glob.glob(pattern)
     
     if not matching_files:
-        pattern_gz = os.path.join(dti_folder, '*epb51_T2_mask.nii.gz')
+        pattern_gz = os.path.join(dti_folder, '*epb0_T2_bet_mask.nii.gz')
         matching_files = glob.glob(pattern_gz)
     
     if matching_files:
@@ -117,7 +121,7 @@ def find_dwi_brainmask_image(dti_folder):
         return matching_files
     else:
         print(f"WARNING: No pre-existing DWI brain mask found in {dti_folder}")
-        print("Expected pattern: *epb51_T2_mask.nii or *epb51_T2_mask.nii.gz")
+        print("Expected pattern: *epb0_T2_mask.nii or *epb0_T2_mask.nii.gz")
         return []
 
 def find_t2_image(input_path):
@@ -197,8 +201,8 @@ def create_mrtrix3_inputs_from_nifti2(dti_folder, subject_folder):
     Create mrtrix3_inputs directory and copy/process files from nifti2.
     This mimics the workflow from the original pipeline.
     """
-    nifti2_dir = os.path.join(dti_folder, "nifti2")
-    mrtrix3_inputs = os.path.join(dti_folder, "mrtrix3_inputs")
+    nifti2_dir = os.path.join(subject_folder, "nifti2")
+    mrtrix3_inputs = os.path.join(subject_folder, "mrtrix3_inputs")
     
     if not os.path.exists(nifti2_dir):
         raise FileNotFoundError(f"nifti2 directory not found: {nifti2_dir}")
@@ -479,12 +483,12 @@ def select_parcellation_strategy(subject_folder, is_nhp=False):
             'warning': "No FreeSurfer data found - using template-based parcellation only"
         }
 
-def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, is_nhp=False):
+def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, subject_folder, is_nhp=False):
     """
     Create replacement dictionary for legacy DTI data.
     """
     # Find DTI file (now standardized as DTI_MOSAIC.nii.gz in mrtrix3_inputs)
-    mrtrix3_inputs = os.path.join(dti_folder, "mrtrix3_inputs")
+    mrtrix3_inputs = os.path.join(subject_folder, "mrtrix3_inputs")
     dti_file = os.path.join(mrtrix3_inputs, "DTI_MOSAIC.nii.gz")
     
     if not os.path.exists(dti_file):
@@ -520,7 +524,7 @@ def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, is_
 
     # Base replacements (note: INPUT now points to the DTI folder's mrtrix3_inputs)
     replacements = {
-        "INPUT": dti_folder,  # Changed: now points to DTI folder
+        "INPUT": dti_folder,
         "OUTPUT": output_path,
         "ANAT": matching_t1w_files[0],
         "FLAIR": matching_flair_files[0],
@@ -529,9 +533,16 @@ def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, is_
         "DWI_MASK": matching_dwi_mask_file,
         "PIXDIM4": str(dti_json['RepetitionTime']),
         "READOUTTIME": str(dti_json['TotalReadoutTime']),
-        "DTI_MOSAIC": dti_file,  # Standardized DTI file path
-        "PE_DIR": pe_direction
+        #"DTI_MOSAIC": dti_file,  # Standardized DTI file path
+        "PE_DIR": pe_direction,
+        "DTI_MOSAIC_NIFTI": os.path.join(mrtrix3_inputs, "DTI_MOSAIC.nii.gz"),
+        "DTI_MOSAIC_BVEC": os.path.join(mrtrix3_inputs, "DTI_MOSAIC.bvec"),
+        "DTI_MOSAIC_BVAL": os.path.join(mrtrix3_inputs, "DTI_MOSAIC.bval"),
+        
     }
+    
+    print(replacements)
+    exit()
     
     # Add FreeSurfer-specific replacements for humans
     if not is_nhp:
@@ -569,7 +580,7 @@ def load_commands_legacy(file_path, input_path, output_path, dti_folder, is_nhp=
 
     # Get enhanced replacements including FreeSurfer paths
     replacements, parcellation_info, shell_type, unique_bvals = create_enhanced_replacements_legacy(
-        input_path, output_path, dti_folder, is_nhp
+        input_path, output_path, dti_folder, input_path, is_nhp
     )
     
     # Add subject name placeholder
@@ -943,7 +954,7 @@ def main():
     
     # Find and analyze DTI file (now standardized as DTI_MOSAIC.nii.gz)
     try:
-        mrtrix3_inputs = os.path.join(dti_folder, "mrtrix3_inputs")
+        mrtrix3_inputs = os.path.join(args.subject_folder, "mrtrix3_inputs")
         dti_file = os.path.join(mrtrix3_inputs, "DTI_MOSAIC.nii.gz")
         
         if not os.path.exists(dti_file):
