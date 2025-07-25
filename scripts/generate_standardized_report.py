@@ -359,10 +359,11 @@ class PureNumpyGraphMetrics:
 
 
 class ConnectomeReporter:
-    def __init__(self, subject_name, output_dir, species='human', freesurfer_version='none'):
+    def __init__(self, subject_name, output_dir, species='human', freesurfer_version='none', input_type="multishell"):
         self.subject_name = subject_name
         self.output_dir = output_dir
         self.species = species
+        self.input_type=input_type
         self.freesurfer_version = freesurfer_version
         self.graph_calculator = PureNumpyGraphMetrics()
         self.report = {
@@ -394,9 +395,14 @@ class ConnectomeReporter:
             'FreeSurfer_Destrieux_scaled': 'connectome_FreeSurfer_Destrieux_scaled.csv'
         }
         
+        # Find all matching directories
+        pattern = os.path.join(self.output_dir, 'DTI_S0*', 'mrtrix3_outputs')
+        matched_dirs = glob.glob(pattern)
+        
         # Common subdirectories where connectomes might be located
         search_directories = [
             self.output_dir,
+            matched_dirs[0],
             os.path.join(self.output_dir, 'DTI', 'mrtrix3_outputs'),
             os.path.join(self.output_dir, 'mrtrix3_outputs'),
             os.path.join(self.output_dir, 'connectomes'),
@@ -508,13 +514,28 @@ class ConnectomeReporter:
         quality_metrics = {}
         
         # Check for key processing files
-        key_files = {
-            'tracks_original': 'tracks_10M_hollander.tck',
-            'tracks_sift': 'sift_1M_hollander.tck',
-            'wmfod': 'wmfod_norm_hollander.mif',
-            'mask': 'mask.mif',
-            'mean_b0': 'mean_b0_processed.mif'
-        }
+        # This is for Multi Shell data
+        
+        if self.input_type == "multishell":
+            print("MultiShell Input")
+            key_files = {
+                'tracks_original': 'tracks_10M_hollander.tck',
+                'tracks_sift': 'sift_1M_hollander.tck',
+                'wmfod': 'wmfod_norm_hollander.mif',
+                'mask': 'mask.mif',
+                'mean_b0': 'mean_b0_processed.mif'
+            }
+            
+        else:
+            print("Assuming Single Shell input")
+            # This is for DTI single shell data
+            key_files = {
+                'tracks_original': 'tracks_10M_hollander.tck',
+                'tracks_sift': 'sift_1M_tournier.tck',
+                'wmfod': 'wmfod_norm_tournier.mif',
+                'mask': 'mask.mif',
+                'mean_b0': 'mean_b0_processed.mif'
+            }
         
         for file_type, filename in key_files.items():
             filepath = os.path.join(self.output_dir, filename)
@@ -659,6 +680,7 @@ def main():
     parser.add_argument('--subject', required=True, help='Subject identifier')
     parser.add_argument('--output_dir', required=True, help='Output directory containing connectome files')
     parser.add_argument('--species', choices=['human', 'nhp'], default='human', help='Species type')
+    parser.add_argument('--input_type', choices=['multishell', 'singleshell'], default='multishell', help='Input DWI type')
     parser.add_argument('--freesurfer_version', default='none', help='FreeSurfer version used')
     parser.add_argument('--output_filename', default='standardized_connectome_report.json', help='Output filename')
     
@@ -669,7 +691,8 @@ def main():
         subject_name=args.subject,
         output_dir=args.output_dir,
         species=args.species,
-        freesurfer_version=args.freesurfer_version
+        freesurfer_version=args.freesurfer_version,
+        input_type=args.input_type
     )
     
     # Generate report
