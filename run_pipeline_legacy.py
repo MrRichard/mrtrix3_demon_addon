@@ -109,11 +109,11 @@ def find_dwi_brainmask_image(dti_folder):
     Find pre-existing diffusion brain mask (*epb0_T2_mask.nii) in the DTI folder.
     This is used for HUMAN processing only. NHP processing uses T1w-based masks.
     """
-    pattern = os.path.join(dti_folder, '*epb0_T2_bet_mask.nii')
+    pattern = os.path.join(dti_folder, '*epb*_T2_bet_mask.nii')
     matching_files = glob.glob(pattern)
     
     if not matching_files:
-        pattern_gz = os.path.join(dti_folder, '*epb0_T2_bet_mask.nii.gz')
+        pattern_gz = os.path.join(dti_folder, '*epb*_T2_bet_mask.nii.gz')
         matching_files = glob.glob(pattern_gz)
     
     if matching_files:
@@ -540,9 +540,6 @@ def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, sub
         "DTI_MOSAIC_BVAL": os.path.join(mrtrix3_inputs, "DTI_MOSAIC.bval"),
         
     }
-    
-    print(replacements)
-    exit()
     
     # Add FreeSurfer-specific replacements for humans
     if not is_nhp:

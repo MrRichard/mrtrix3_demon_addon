@@ -80,8 +80,8 @@ class ImageTypeChecker:
                         }
         self.mrtrix3_inputs = self.create_mrtrix3_inputs(image_data)
         
-        if nifti2_created:
-            shutil.rmtree(nifti2dir)
+        #if nifti2_created:
+        #    shutil.rmtree(nifti2dir)
             
         return image_data
     

@@ -172,7 +172,7 @@
     },
     {
       "name": "step33-freesurfer_labelsgmfix_DK",
-      "cmd": "labelsgmfix OUTPUT/nodes_freesurfer_DK.mif FS_BRAIN $MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_default.txt OUTPUT/nodes_freesurfer_DK_fixed.mif",
+      "cmd": "labelsgmfix OUTPUT/nodes_freesurfer_DK.mif FS_BRAIN $MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_default.txt OUTPUT/nodes_freesurfer_DK_fixed.mif -premasked",
       "validation_output": "OUTPUT/nodes_freesurfer_DK_fixed.mif",
       "species": "human",
       "requires": "FS_APARC_ASEG"
