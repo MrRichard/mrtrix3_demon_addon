@@ -1,8 +1,22 @@
 {
-  "pipeline_type": "single_shell_dti_enhanced",
-  "description": "Enhanced MRtrix3 pipeline for single-shell DTI data with robust preprocessing and multiple atlas support",
-  "version": "2.0",
-  "optimized_for": "b=1000 single-shell DTI data",
+  "pipeline_type": "single_shell_dti_enhanced_fieldmap",
+  "description": "Enhanced MRtrix3 pipeline for single-shell DTI data with fieldmap-based distortion correction and robust preprocessing",
+  "version": "2.1",
+  "optimized_for": "b=1000 single-shell DTI data with dual-echo fieldmap correction",
+  "required_inputs": {
+    "DTI_MOSAIC_NIFTI": "Main DTI data in NIFTI format",
+    "DTI_MOSAIC_BVEC": "B-vectors file",
+    "DTI_MOSAIC_BVAL": "B-values file", 
+    "ANAT": "Anatomical reference image",
+    "_comment_fieldmap_inputs_added_20250725": "FIELDMAP SUPPORT ADDED 7/25/2025 - Following inputs added for distortion correction",
+    "FIELDMAP_MAG1": "First magnitude image (shorter TE)",
+    "FIELDMAP_MAG2": "Second magnitude image (longer TE)",
+    "FIELDMAP_PHASEDIFF": "Phase difference image",
+    "DELTA_TE": "Echo time difference in seconds (e.g., 0.00246)",
+    "_comment_pe_readout_added_20250725": "PE/READOUT PARAMETERS ENHANCED 7/25/2025 - For fieldmap integration",
+    "PE_DIR": "Phase encoding direction (e.g., j-, j, i-, i)",
+    "READOUTTIME": "Total EPI readout time in seconds"
+  },
   "steps": [
     {
       "name": "step1-mrconvert_DTI",
@@ -41,10 +55,57 @@
       "description": "Remove Gibbs ringing artifacts (recommended for single-shell)"
     },
     {
-      "name": "step7-dwifslpreproc_single_shell",
+      "_comment_fieldmap_steps_added_20250725": "FIELDMAP PREPROCESSING STEPS ADDED 7/25/2025 - Steps 6b-6f handle dual-echo fieldmap preparation",
+      "name": "step6b-fieldmap_mag_convert",
+      "cmd": "mrconvert FIELDMAP_MAG2 OUTPUT/fieldmap_mag.mif -force",
+      "validation_output": "OUTPUT/fieldmap_mag.mif",
+      "description": "Convert second magnitude image (better contrast) to MIF format",
+      "conditional": "fieldmap_available"
+    },
+    {
+      "name": "step6c-fieldmap_phase_convert",
+      "cmd": "mrconvert FIELDMAP_PHASEDIFF OUTPUT/fieldmap_phase.mif -force",
+      "validation_output": "OUTPUT/fieldmap_phase.mif",
+      "description": "Convert phase difference image to MIF format",
+      "conditional": "fieldmap_available"
+    },
+    {
+      "name": "step6d-fieldmap_brain_extract",
+      "cmd": "mrconvert OUTPUT/fieldmap_mag.mif OUTPUT/fieldmap_mag.nii.gz -force && bet2 OUTPUT/fieldmap_mag.nii.gz OUTPUT/fieldmap_mag_brain.nii.gz -f 0.5 -m",
+      "validation_output": "OUTPUT/fieldmap_mag_brain.nii.gz",
+      "description": "Brain extract the magnitude image for fieldmap preparation",
+      "conditional": "fieldmap_available"
+    },
+    {
+      "name": "step6e-fieldmap_prepare",
+      "cmd": "mrconvert OUTPUT/fieldmap_phase.mif OUTPUT/fieldmap_phase.nii.gz -force && fsl_prepare_fieldmap SIEMENS OUTPUT/fieldmap_phase.nii.gz OUTPUT/fieldmap_mag_brain.nii.gz OUTPUT/fieldmap_rads.nii.gz DELTA_TE",
+      "validation_output": "OUTPUT/fieldmap_rads.nii.gz",
+      "description": "Prepare fieldmap in radians for TOPUP (assumes Siemens format)",
+      "conditional": "fieldmap_available",
+      "notes": "Change SIEMENS to appropriate vendor if needed"
+    },
+    {
+      "name": "step6f-create_acqparams",
+      "cmd": "echo '0 1 0 READOUTTIME' > OUTPUT/acqparams.txt",
+      "validation_output": "OUTPUT/acqparams.txt", 
+      "description": "Create acquisition parameters file for TOPUP (assumes j PE direction)",
+      "conditional": "fieldmap_available",
+      "notes": "Adjust phase encoding direction vector based on PE_DIR parameter"
+    },
+    {
+      "_comment_preprocessing_enhanced_20250725": "PREPROCESSING ENHANCED 7/25/2025 - Added fieldmap-based and fallback versions",
+      "name": "step7-dwifslpreproc_fieldmap",
+      "cmd": "dwifslpreproc OUTPUT/dwi_den_degibbs.mif OUTPUT/dwi_den_preproc.mif -rpe_none -pe_dir PE_DIR -eddy_options \"--slm=linear --data_is_shelled\" -topup_options \"--fmap=OUTPUT/fieldmap_rads.nii.gz --datain=OUTPUT/acqparams.txt\" -force -nthreads 8 -readout_time READOUTTIME",
+      "validation_output": "OUTPUT/dwi_den_preproc.mif",
+      "description": "FSL-based preprocessing with fieldmap-based distortion correction",
+      "conditional": "fieldmap_available"
+    },
+    {
+      "name": "step7-dwifslpreproc_fallback",
       "cmd": "dwifslpreproc OUTPUT/dwi_den_degibbs.mif OUTPUT/dwi_den_preproc.mif -rpe_none -pe_dir PE_DIR -eddy_options \"--slm=linear --data_is_shelled\" -force -nthreads 8 -readout_time READOUTTIME",
       "validation_output": "OUTPUT/dwi_den_preproc.mif",
-      "description": "FSL-based preprocessing with eddy current and motion correction (no reverse PE correction for legacy data)"
+      "description": "FSL-based preprocessing WITHOUT distortion correction (fallback if no fieldmap)",
+      "conditional": "no_fieldmap_fallback"
     },
     {
       "name": "step8-dwibiascorrect",
@@ -286,5 +347,33 @@
       "requires": "FS_APARC_DESTRIEUX",
       "description": "Generate FreeSurfer Destrieux connectome (volume-normalized)"
     }
-  ]
+  ],
+  "_comment_fieldmap_config_added_20250725": "FIELDMAP CONFIGURATION SECTION ADDED 7/25/2025 - Provides guidance for fieldmap setup and parameters",
+  "fieldmap_configuration": {
+    "description": "Dual-echo gradient echo fieldmap setup",
+    "typical_parameters": {
+      "siemens_delta_te": "0.00246",
+      "ge_delta_te": "0.00224", 
+      "philips_delta_te": "0.0023",
+      "common_pe_directions": {
+        "axial_anterior_posterior": "j",
+        "axial_posterior_anterior": "j-",
+        "coronal_right_left": "i",
+        "coronal_left_right": "i-"
+      }
+    },
+    "quality_checks": [
+      "Verify fieldmap covers same slice locations as DTI",
+      "Check for proper magnitude/phase contrast",
+      "Ensure DELTA_TE matches sequence parameters",
+      "Validate PE_DIR matches DTI acquisition"
+    ]
+  },
+  "_comment_pipeline_notes_enhanced_20250725": "PIPELINE NOTES ENHANCED 7/25/2025 - Added fieldmap-specific guidance",
+  "pipeline_notes": {
+    "fieldmap_fallback": "If fieldmaps are not available, the pipeline will fall back to step7-dwifslpreproc_fallback",
+    "conditional_execution": "Steps with 'conditional' field should be executed based on data availability",
+    "vendor_compatibility": "Fieldmap preparation assumes Siemens format - adjust fsl_prepare_fieldmap vendor parameter as needed",
+    "pe_direction_config": "The acqparams.txt creation in step6f assumes j direction - modify based on actual PE_DIR"
+  }
 }
