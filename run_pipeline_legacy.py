@@ -7,6 +7,144 @@ import os
 import logging
 import numpy as np
 
+# ENHANCED 7/25/2025: Added comprehensive fieldmap support for distortion correction
+
+# ADDED 7/25/2025: New function to find fieldmap files in the mrtrix3_inputs directory
+def find_fieldmap_files(subject_folder):
+    """
+    Find fieldmap files in the mrtrix3_inputs directory.
+    Returns dictionary with fieldmap file paths and metadata.
+    """
+    mrtrix3_inputs = os.path.join(subject_folder, "mrtrix3_inputs")
+    
+    if not os.path.exists(mrtrix3_inputs):
+        return {}
+    
+    fieldmap_files = {}
+    
+    # Look for fieldmap files
+    fieldmap_patterns = {
+        'FIELDMAP_MAG1': 'FIELDMAP_MAG1.nii.gz',
+        'FIELDMAP_MAG2': 'FIELDMAP_MAG2.nii.gz', 
+        'FIELDMAP_PHASEDIFF': 'FIELDMAP_PHASEDIFF.nii.gz'
+    }
+    
+    for key, filename in fieldmap_patterns.items():
+        nii_file = os.path.join(mrtrix3_inputs, filename)
+        json_file = os.path.join(mrtrix3_inputs, filename.replace('.nii.gz', '.json'))
+        
+        if os.path.exists(nii_file):
+            fieldmap_files[key] = {
+                'nifti_path': nii_file,
+                'json_path': json_file if os.path.exists(json_file) else None
+            }
+            print(f"Found fieldmap file: {filename}")
+        
+    return fieldmap_files
+
+# ADDED 7/25/2025: New function to extract DELTA_TE and other parameters from fieldmap JSON files
+def extract_fieldmap_parameters(fieldmap_files):
+    """
+    Extract DELTA_TE and other parameters from fieldmap JSON files.
+    """
+    if not fieldmap_files:
+        return {}
+    
+    # Get echo times from magnitude images
+    echo_times = []
+    
+    for mag_key in ['FIELDMAP_MAG1', 'FIELDMAP_MAG2']:
+        if mag_key in fieldmap_files and fieldmap_files[mag_key]['json_path']:
+            try:
+                with open(fieldmap_files[mag_key]['json_path'], 'r') as f:
+                    json_data = json.load(f)
+                    echo_time = json_data.get('EchoTime', 0)
+                    echo_times.append(echo_time)
+                    print(f"{mag_key} Echo Time: {echo_time:.6f}s")
+            except Exception as e:
+                print(f"WARNING: Could not read {mag_key} JSON: {e}")
+    
+    # Calculate DELTA_TE
+    delta_te = 0.00246  # Default Siemens value
+    if len(echo_times) == 2:
+        delta_te = abs(echo_times[1] - echo_times[0])
+        print(f"Calculated DELTA_TE: {delta_te:.6f}s")
+    else:
+        print(f"WARNING: Could not calculate DELTA_TE, using default: {delta_te}s")
+    
+    # Try to get phase encoding direction from one of the magnitude images
+    pe_dir = "j"  # Default
+    readout_time = 0.1  # Default
+    
+    for mag_key in ['FIELDMAP_MAG1', 'FIELDMAP_MAG2']:
+        if mag_key in fieldmap_files and fieldmap_files[mag_key]['json_path']:
+            try:
+                with open(fieldmap_files[mag_key]['json_path'], 'r') as f:
+                    json_data = json.load(f)
+                    
+                    # Get phase encoding direction
+                    if 'PhaseEncodingDirection' in json_data:
+                        pe_dir = json_data['PhaseEncodingDirection']
+                        break
+                    elif 'InPlanePhaseEncodingDirection' in json_data:
+                        pe_dir = json_data['InPlanePhaseEncodingDirection'] 
+                        break
+                        
+            except Exception as e:
+                print(f"WARNING: Could not read PE direction from {mag_key}: {e}")
+    
+    return {
+        'DELTA_TE': delta_te,
+        'FIELDMAP_PE_DIR': pe_dir,
+        'echo_times': echo_times
+    }
+
+# ADDED 7/25/2025: New function to detect fieldmap configuration and validate completeness
+def detect_fieldmap_configuration(subject_folder):
+    """
+    Detect if fieldmaps are available and what type.
+    Returns configuration info and file paths.
+    """
+    fieldmap_files = find_fieldmap_files(subject_folder)
+    
+    if not fieldmap_files:
+        return {
+            'available': False,
+            'type': None,
+            'files': {},
+            'parameters': {}
+        }
+    
+    # Check what type of fieldmap we have
+    has_mag1 = 'FIELDMAP_MAG1' in fieldmap_files
+    has_mag2 = 'FIELDMAP_MAG2' in fieldmap_files
+    has_phase = 'FIELDMAP_PHASEDIFF' in fieldmap_files
+    
+    if has_mag1 and has_mag2 and has_phase:
+        fieldmap_type = 'dual_echo_gre'
+        print("Detected: Dual-echo GRE fieldmap (ideal for distortion correction)")
+    elif (has_mag1 or has_mag2) and has_phase:
+        fieldmap_type = 'single_echo_gre'
+        print("Detected: Single-echo GRE fieldmap")
+    else:
+        print("WARNING: Incomplete fieldmap data detected")
+        return {
+            'available': False,
+            'type': 'incomplete',
+            'files': fieldmap_files,
+            'parameters': {}
+        }
+    
+    # Extract parameters
+    parameters = extract_fieldmap_parameters(fieldmap_files)
+    
+    return {
+        'available': True,
+        'type': fieldmap_type,
+        'files': fieldmap_files,
+        'parameters': parameters
+    }
+
 def find_t1_image(input_path):
     """Find T1 anatomical file."""
     pattern = os.path.join(os.path.join(input_path,'nifti'), '*-tfl3d116.nii*')
@@ -15,9 +153,6 @@ def find_t1_image(input_path):
     if len(matching_files) == 0:
         pattern = os.path.join(os.path.join(input_path,'nifti'), '*-tfl3d116ns.nii*')
         matching_files = glob.glob(pattern)
-    
-    # Replace the suffix ".info" with ".nii" for each matching file
-    #matching_files = [f.replace('.info', '.nii') for f in matching_files]
     
     return matching_files
 
@@ -39,12 +174,7 @@ def find_dti_directory(subject_folder):
     
     # Try different DTI directory patterns
     patterns = [
-        'DTI_S*',      # DTI_S0006, DTI_S0012, etc.
-        'DTI*',        # DTI, DTI_1, etc.
-        'DWI_S*',      # Alternative naming
-        'DWI*',        # Alternative naming
-        'DIFFUSION_S*', # Another alternative
-        'DIFFUSION*'   # Another alternative
+        'DTI_S*', 'DTI*', 'DWI_S*', 'DWI*', 'DIFFUSION_S*', 'DIFFUSION*'
     ]
     
     dti_dirs = []
@@ -58,7 +188,6 @@ def find_dti_directory(subject_folder):
     
     if not dti_dirs:
         print("DEBUG: No pattern matches found, trying fallback search...")
-        # Fallback: look for any directory containing DTI/DWI/DIFFUSION
         try:
             all_dirs = [d for d in os.listdir(subject_folder) 
                        if os.path.isdir(os.path.join(subject_folder, d))]
@@ -74,10 +203,8 @@ def find_dti_directory(subject_folder):
         print("ERROR: No DTI/DWI directory found")
         return None, None
     
-    # Remove duplicates
     dti_dirs = list(set(dti_dirs))
     
-    # Check for tmp/ directory at subject root level (not in DTI directory)
     tmp_dir = os.path.join(subject_folder, 'tmp')
     if os.path.exists(tmp_dir):
         try:
@@ -94,7 +221,6 @@ def find_dti_directory(subject_folder):
     
     if len(dti_dirs) > 1:
         print(f"Multiple DTI directories found: {[os.path.basename(d) for d in dti_dirs]}")
-        # Sort by name and take the first one
         dti_dirs.sort()
         selected_dir = dti_dirs[0]
         print(f"Selected: {os.path.basename(selected_dir)}")
@@ -105,10 +231,7 @@ def find_dti_directory(subject_folder):
     return selected_dir, os.path.basename(selected_dir)
 
 def find_dwi_brainmask_image(dti_folder):
-    """
-    Find pre-existing diffusion brain mask (*epb0_T2_mask.nii) in the DTI folder.
-    This is used for HUMAN processing only. NHP processing uses T1w-based masks.
-    """
+    """Find pre-existing diffusion brain mask (*epb0_T2_mask.nii) in the DTI folder."""
     pattern = os.path.join(dti_folder, '*epb*_T2_bet_mask.nii')
     matching_files = glob.glob(pattern)
     
@@ -143,10 +266,7 @@ def find_flair_image(input_path):
     return matching_files
 
 def find_dti_mosaic(dti_folder, subject_folder):
-    """
-    Find DTI MOSAIC file in the nifti2 directory within the DTI folder.
-    For legacy DTI data, we look in nifti2/ which is created from DICOMs.
-    """
+    """Find DTI MOSAIC file in the nifti2 directory within the DTI folder."""
     nifti2_dir = os.path.join(subject_folder, "nifti2")
     
     if not os.path.exists(nifti2_dir):
@@ -154,28 +274,20 @@ def find_dti_mosaic(dti_folder, subject_folder):
         print("Run DICOM conversion first using ImageTypeChecker")
         return None
     
-    # Look for DTI files - try different naming patterns
     patterns = [
-        "*DTI*.nii.gz",
-        "*dti*.nii.gz", 
-        "*ep2d_diff*.nii.gz",  # Common Siemens DTI sequence name
-        "*DIFFUSION*.nii.gz",
-        "*diff*.nii.gz",
-        "*dwi*.nii.gz",         # Alternative naming
-        "*MOSAIC*.nii.gz"       # Generic MOSAIC naming
+        "*DTI*.nii.gz", "*dti*.nii.gz", "*ep2d_diff*.nii.gz",
+        "*DIFFUSION*.nii.gz", "*diff*.nii.gz", "*dwi*.nii.gz", "*MOSAIC*.nii.gz"
     ]
     
     dti_files = []
     for pattern in patterns:
         files = glob.glob(os.path.join(nifti2_dir, pattern))
-        # Filter out obvious non-DTI files
         files = [f for f in files if 'PHASE' not in f and 'SBREF' not in f and 'fieldmap' not in f.lower()]
         dti_files.extend(files)
         if files:
             print(f"DEBUG: Pattern {pattern} found: {[os.path.basename(f) for f in files]}")
     
     if not dti_files:
-        # Fallback: look for any .nii.gz file that's not obviously something else
         all_files = glob.glob(os.path.join(nifti2_dir, "*.nii.gz"))
         dti_files = [f for f in all_files if 'PHASE' not in f and 'SBREF' not in f and 'fieldmap' not in f.lower()]
         
@@ -186,7 +298,6 @@ def find_dti_mosaic(dti_folder, subject_folder):
             print(f"Available files: {os.listdir(nifti2_dir) if os.path.exists(nifti2_dir) else 'none'}")
             return None
     
-    # If multiple files, pick the largest (likely the main DTI acquisition)
     if len(dti_files) > 1:
         file_sizes = {f: os.path.getsize(f) for f in dti_files}
         largest_file = max(file_sizes, key=file_sizes.get)
@@ -196,40 +307,32 @@ def find_dti_mosaic(dti_folder, subject_folder):
         print(f"Found DTI file: {os.path.basename(dti_files[0])}")
         return dti_files[0]
 
+# ENHANCED 7/25/2025: Updated to copy fieldmap files along with DTI files
 def create_mrtrix3_inputs_from_nifti2(dti_folder, subject_folder):
-    """
-    Create mrtrix3_inputs directory and copy/process files from nifti2.
-    This mimics the workflow from the original pipeline.
-    """
+    """Create mrtrix3_inputs directory and copy/process files from nifti2."""
     nifti2_dir = os.path.join(subject_folder, "nifti2")
     mrtrix3_inputs = os.path.join(subject_folder, "mrtrix3_inputs")
     
     if not os.path.exists(nifti2_dir):
         raise FileNotFoundError(f"nifti2 directory not found: {nifti2_dir}")
     
-    # Create mrtrix3_inputs directory
     if not os.path.exists(mrtrix3_inputs):
         os.makedirs(mrtrix3_inputs)
         print(f"Created mrtrix3_inputs directory: {mrtrix3_inputs}")
     
-    # Find DTI file in nifti2
     dti_file = find_dti_mosaic(dti_folder, subject_folder)
     if not dti_file:
         raise FileNotFoundError("No DTI file found in nifti2 directory")
     
-    # Get base name for consistent naming
-    base_name = os.path.basename(dti_file).replace('.nii.gz', '')
-    
-    # Copy DTI files to mrtrix3_inputs with standardized naming
     import shutil
     
-    # Main DTI file
+    # Copy DTI files
     target_dti = os.path.join(mrtrix3_inputs, "DTI_MOSAIC.nii.gz")
     if not os.path.exists(target_dti):
         shutil.copy2(dti_file, target_dti)
         print(f"Copied DTI file: {os.path.basename(dti_file)} -> DTI_MOSAIC.nii.gz")
     
-    # Look for corresponding bval and bvec files
+    # Copy DTI sidecar files
     bval_file = dti_file.replace('.nii.gz', '.bval')
     bvec_file = dti_file.replace('.nii.gz', '.bvec')
     json_file = dti_file.replace('.nii.gz', '.json')
@@ -238,50 +341,67 @@ def create_mrtrix3_inputs_from_nifti2(dti_folder, subject_folder):
     target_bvec = os.path.join(mrtrix3_inputs, "DTI_MOSAIC.bvec")
     target_json = os.path.join(mrtrix3_inputs, "DTI_MOSAIC.json")
     
-    # Copy bval file
-    if os.path.exists(bval_file) and not os.path.exists(target_bval):
-        shutil.copy2(bval_file, target_bval)
-        print(f"Copied bval file: {os.path.basename(bval_file)} -> DTI_MOSAIC.bval")
-    elif not os.path.exists(bval_file):
-        print(f"WARNING: No bval file found at {bval_file}")
+    for source, target, name in [(bval_file, target_bval, "bval"), 
+                                 (bvec_file, target_bvec, "bvec"),
+                                 (json_file, target_json, "JSON")]:
+        if os.path.exists(source) and not os.path.exists(target):
+            shutil.copy2(source, target)
+            print(f"Copied {name} file: {os.path.basename(source)} -> {os.path.basename(target)}")
+        elif not os.path.exists(source) and name in ["bval", "bvec"]:
+            print(f"WARNING: No {name} file found at {source}")
     
-    # Copy bvec file
-    if os.path.exists(bvec_file) and not os.path.exists(target_bvec):
-        shutil.copy2(bvec_file, target_bvec)
-        print(f"Copied bvec file: {os.path.basename(bvec_file)} -> DTI_MOSAIC.bvec")
-    elif not os.path.exists(bvec_file):
-        print(f"WARNING: No bvec file found at {bvec_file}")
+    # ADDED 7/25/2025: Copy fieldmap files if they exist
+    fieldmap_patterns = [
+        ("*FIELDMAP*MAG*1*.nii.gz", "FIELDMAP_MAG1.nii.gz"),
+        ("*FIELDMAP*MAG*2*.nii.gz", "FIELDMAP_MAG2.nii.gz"), 
+        ("*FIELDMAP*PHASE*.nii.gz", "FIELDMAP_PHASEDIFF.nii.gz"),
+        ("*B0*MAP*MAG*1*.nii.gz", "FIELDMAP_MAG1.nii.gz"),
+        ("*B0*MAP*MAG*2*.nii.gz", "FIELDMAP_MAG2.nii.gz"),
+        ("*B0*MAP*PHASE*.nii.gz", "FIELDMAP_PHASEDIFF.nii.gz")
+    ]
     
-    # Copy JSON file if available
-    if os.path.exists(json_file) and not os.path.exists(target_json):
-        shutil.copy2(json_file, target_json)
-        print(f"Copied JSON file: {os.path.basename(json_file)} -> DTI_MOSAIC.json")
-    elif not os.path.exists(json_file):
-        print(f"INFO: No JSON file found at {json_file}")
+    fieldmap_found = False
+    for pattern, target_name in fieldmap_patterns:
+        files = glob.glob(os.path.join(nifti2_dir, pattern))
+        if files:
+            source_file = files[0]  # Take first match
+            target_fieldmap = os.path.join(mrtrix3_inputs, target_name)
+            
+            if not os.path.exists(target_fieldmap):
+                shutil.copy2(source_file, target_fieldmap)
+                print(f"Copied fieldmap: {os.path.basename(source_file)} -> {target_name}")
+                fieldmap_found = True
+                
+                # Copy corresponding JSON file
+                json_source = source_file.replace('.nii.gz', '.json')
+                json_target = target_fieldmap.replace('.nii.gz', '.json')
+                if os.path.exists(json_source) and not os.path.exists(json_target):
+                    shutil.copy2(json_source, json_target)
+                    print(f"Copied fieldmap JSON: {os.path.basename(json_source)} -> {os.path.basename(json_target)}")
     
-    # Verify that we have the essential files
+    if not fieldmap_found:
+        print("INFO: No fieldmap files found - will use standard preprocessing without distortion correction")
+    
+    # Verify essential DTI files
     if not os.path.exists(target_bval) or not os.path.exists(target_bvec):
         raise FileNotFoundError("Missing essential bval or bvec files - DTI processing cannot continue")
     
     return target_dti
 
+# ENHANCED 7/25/2025: Updated to return actual PE direction for MRtrix3 instead of dwifslpreproc format
 def detect_pe_direction_from_json(dti_file):
-    """
-    Detect phase encoding direction from JSON sidecar.
-    Returns the PE direction code for dwifslpreproc.
-    """
+    """Detect phase encoding direction from JSON sidecar."""
     json_file = dti_file.replace('.nii.gz', '.json')
     
     if not os.path.exists(json_file):
         print(f"WARNING: No JSON sidecar found at {json_file}")
-        print("Defaulting to 'ap' phase encoding direction")
-        return 'ap'
+        print("Defaulting to 'j' phase encoding direction")
+        return 'j'
     
     try:
         with open(json_file, 'r') as f:
             json_data = json.load(f)
         
-        # Look for phase encoding direction
         pe_dir = None
         if 'PhaseEncodingDirection' in json_data:
             pe_dir = json_data['PhaseEncodingDirection']
@@ -289,24 +409,17 @@ def detect_pe_direction_from_json(dti_file):
             pe_dir = json_data['InPlanePhaseEncodingDirection']
         
         if pe_dir:
-            # Convert to dwifslpreproc format
-            if pe_dir in ['j', 'j-', 'AP', 'A>>P']:
-                return 'ap'
-            elif pe_dir in ['j+', 'PA', 'P>>A']:
-                return 'pa'
-            elif pe_dir in ['i', 'i-', 'LR', 'L>>R']:
-                return 'lr'
-            elif pe_dir in ['i+', 'RL', 'R>>L']:
-                return 'rl'
+            # ENHANCED 7/25/2025: Return the actual direction for MRtrix3 (not dwifslpreproc format)
+            return pe_dir
         
         print(f"WARNING: Could not interpret phase encoding direction: {pe_dir}")
-        print("Defaulting to 'ap' phase encoding direction")
-        return 'ap'
+        print("Defaulting to 'j' phase encoding direction")
+        return 'j'
         
     except Exception as e:
         print(f"WARNING: Error reading JSON file: {e}")
-        print("Defaulting to 'ap' phase encoding direction")
-        return 'ap'
+        print("Defaulting to 'j' phase encoding direction")
+        return 'j'
 
 def read_dti_json(dti_file):
     """Read DTI JSON sidecar and extract relevant parameters."""
@@ -315,23 +428,20 @@ def read_dti_json(dti_file):
     if not os.path.exists(json_file):
         print(f"WARNING: No JSON sidecar found at {json_file}")
         return {
-            'TotalReadoutTime': 0.1,  # Default fallback
-            'RepetitionTime': 2.0     # Default fallback
+            'TotalReadoutTime': 0.1,
+            'RepetitionTime': 2.0
         }
     
     try:
         with open(json_file, 'r') as f:
             json_data = json.load(f)
         
-        # Extract readout time
-        readout_time = 0.1  # Default
+        readout_time = 0.1
         if 'TotalReadoutTime' in json_data:
             readout_time = json_data['TotalReadoutTime']
         elif 'EffectiveEchoSpacing' in json_data and 'ReconMatrixPE' in json_data:
-            # Calculate from EES and matrix size
             readout_time = json_data['EffectiveEchoSpacing'] * (json_data['ReconMatrixPE'] - 1)
         
-        # Extract repetition time
         repetition_time = json_data.get('RepetitionTime', 2.0)
         
         return {
@@ -347,30 +457,21 @@ def read_dti_json(dti_file):
         }
 
 def detect_shell_configuration(dti_file):
-    """
-    Detect shell configuration from bval file.
-    Returns shell type and b-values.
-    """
+    """Detect shell configuration from bval file."""
     bval_file = dti_file.replace('.nii.gz', '.bval')
     
     if not os.path.exists(bval_file):
         print(f"ERROR: No bval file found at {bval_file}")
         return None, None
     
-    # Read b-values
     bvals = np.loadtxt(bval_file)
-    
-    # Round to nearest 50 to account for scanner variations
     bvals_rounded = np.round(bvals / 50) * 50
-    
-    # Find unique non-zero b-values
     unique_bvals = np.unique(bvals_rounded[bvals_rounded > 50])
     shell_count = len(unique_bvals)
     
     print(f"Detected b-values: {unique_bvals}")
     print(f"Shell count: {shell_count}")
     
-    # Classify shell configuration
     if shell_count == 1:
         if unique_bvals[0] <= 1200:
             shell_type = "single_shell_dti"
@@ -393,7 +494,7 @@ def detect_freesurfer_version(subject_folder):
     """Detect available FreeSurfer versions."""
     fs_dirs = {
         'freesurfer8.0': 'freesurfer8.0',
-        'FreeSurfer7': 'FreeSurfer7',
+        'FreeSurfer7': 'FreeSurfer7', 
         'FreeSurfer': 'FreeSurfer'
     }
     
@@ -483,11 +584,10 @@ def select_parcellation_strategy(subject_folder, is_nhp=False):
             'warning': "No FreeSurfer data found - using template-based parcellation only"
         }
 
+# ENHANCED 7/25/2025: Added fieldmap configuration detection and parameter extraction
 def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, subject_folder, is_nhp=False):
-    """
-    Create replacement dictionary for legacy DTI data.
-    """
-    # Find DTI file (now standardized as DTI_MOSAIC.nii.gz in mrtrix3_inputs)
+    """Create replacement dictionary for legacy DTI data with fieldmap support."""
+    # Find DTI file
     mrtrix3_inputs = os.path.join(subject_folder, "mrtrix3_inputs")
     dti_file = os.path.join(mrtrix3_inputs, "DTI_MOSAIC.nii.gz")
     
@@ -498,6 +598,9 @@ def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, sub
     dti_json = read_dti_json(dti_file)
     pe_direction = detect_pe_direction_from_json(dti_file)
     shell_type, unique_bvals = detect_shell_configuration(dti_file)
+    
+    # ADDED 7/25/2025: Detect fieldmap configuration
+    fieldmap_config = detect_fieldmap_configuration(subject_folder)
     
     # Find anatomical images
     matching_t1w_files = find_t1_image(input_path)
@@ -510,7 +613,7 @@ def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, sub
         matching_brainmask_images = find_t1_brainmask_image(input_path)
         matching_t1_mask_file = matching_brainmask_images[0]
 
-    # Handle DWI masks for humans - pass DTI folder instead of input_path
+    # Handle DWI masks for humans
     if not is_nhp:
         matching_dwi_brainmask_images = find_dwi_brainmask_image(dti_folder)
         if matching_dwi_brainmask_images:
@@ -522,7 +625,7 @@ def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, sub
     else:
         matching_dwi_mask_file = ''
 
-    # Base replacements (note: INPUT now points to the DTI folder's mrtrix3_inputs)
+    # Base replacements
     replacements = {
         "INPUT": dti_folder,
         "OUTPUT": output_path,
@@ -533,13 +636,36 @@ def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, sub
         "DWI_MASK": matching_dwi_mask_file,
         "PIXDIM4": str(dti_json['RepetitionTime']),
         "READOUTTIME": str(dti_json['TotalReadoutTime']),
-        #"DTI_MOSAIC": dti_file,  # Standardized DTI file path
         "PE_DIR": pe_direction,
         "DTI_MOSAIC_NIFTI": os.path.join(mrtrix3_inputs, "DTI_MOSAIC.nii.gz"),
         "DTI_MOSAIC_BVEC": os.path.join(mrtrix3_inputs, "DTI_MOSAIC.bvec"),
         "DTI_MOSAIC_BVAL": os.path.join(mrtrix3_inputs, "DTI_MOSAIC.bval"),
-        
     }
+    
+    # ADDED 7/25/2025: Add fieldmap-specific replacements
+    if fieldmap_config['available']:
+        fieldmap_files = fieldmap_config['files'] 
+        fieldmap_params = fieldmap_config['parameters']
+        
+        replacements.update({
+            "FIELDMAP_MAG1": fieldmap_files.get('FIELDMAP_MAG1', {}).get('nifti_path', ''),
+            "FIELDMAP_MAG2": fieldmap_files.get('FIELDMAP_MAG2', {}).get('nifti_path', ''),
+            "FIELDMAP_PHASEDIFF": fieldmap_files.get('FIELDMAP_PHASEDIFF', {}).get('nifti_path', ''),
+            "DELTA_TE": str(fieldmap_params.get('DELTA_TE', 0.00246)),
+            "FIELDMAP_AVAILABLE": "true"
+        })
+        print(f"✓ Fieldmap distortion correction will be applied")
+        print(f"  - DELTA_TE: {fieldmap_params.get('DELTA_TE', 0.00246):.6f}s")
+        print(f"  - Type: {fieldmap_config['type']}")
+    else:
+        replacements.update({
+            "FIELDMAP_MAG1": "",
+            "FIELDMAP_MAG2": "",
+            "FIELDMAP_PHASEDIFF": "",
+            "DELTA_TE": "0.00246",
+            "FIELDMAP_AVAILABLE": "false"
+        })
+        print("⚠ No fieldmaps detected - using standard preprocessing without distortion correction")
     
     # Add FreeSurfer-specific replacements for humans
     if not is_nhp:
@@ -565,18 +691,18 @@ def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, sub
                 "FS_VERSION": "none"
             })
     
-    return replacements, parcellation_info if not is_nhp else None, shell_type, unique_bvals
+    # ENHANCED 7/25/2025: Return fieldmap configuration as part of the response
+    return replacements, parcellation_info if not is_nhp else None, shell_type, unique_bvals, fieldmap_config
 
+# ENHANCED 7/25/2025: Added fieldmap conditional processing logic
 def load_commands_legacy(file_path, input_path, output_path, dti_folder, is_nhp=False, rerun=False):
-    """
-    Load and modify commands for legacy DTI processing.
-    """
+    """Load and modify commands for legacy DTI processing with fieldmap support."""
     # Load JSON commands file
     with open(file_path, 'r') as f:
         data = json.load(f)
 
-    # Get enhanced replacements including FreeSurfer paths
-    replacements, parcellation_info, shell_type, unique_bvals = create_enhanced_replacements_legacy(
+    # ENHANCED 7/25/2025: Get enhanced replacements including fieldmap paths
+    replacements, parcellation_info, shell_type, unique_bvals, fieldmap_config = create_enhanced_replacements_legacy(
         input_path, output_path, dti_folder, input_path, is_nhp
     )
     
@@ -589,14 +715,17 @@ def load_commands_legacy(file_path, input_path, output_path, dti_folder, is_nhp=
     print(f"B-values: {unique_bvals}")
     print(f"Phase encoding: {replacements['PE_DIR']}")
     print(f"Readout time: {replacements['READOUTTIME']}")
+    # ADDED 7/25/2025: Log fieldmap availability
+    print(f"Fieldmap available: {fieldmap_config['available']}")
     
     commands = []
     skipped_steps = []
     
-    # Check if we have a pre-existing DWI mask (only for humans)
+    # ADDED 7/25/2025: Check if we have fieldmaps and pre-existing DWI mask
+    has_fieldmaps = fieldmap_config['available']
     has_existing_dwi_mask = not is_nhp and bool(replacements.get('DWI_MASK'))
     
-    # Log FreeSurfer information for humans
+    # Log configuration
     if not is_nhp and parcellation_info:
         if parcellation_info['warning']:
             print(f"WARNING: {parcellation_info['warning']}")
@@ -608,13 +737,19 @@ def load_commands_legacy(file_path, input_path, output_path, dti_folder, is_nhp=
             print(f"FreeSurfer Version: {parcellation_info['freesurfer_version']}")
             print(f"FreeSurfer Path: {parcellation_info['freesurfer_path']}")
 
-    # Log DWI mask strategy
+    # Log processing strategies
     if is_nhp:
         print("DWI Mask Strategy (NHP): Using T1w-based approach")
     elif has_existing_dwi_mask:
         print(f"DWI Mask Strategy (Human): Using pre-existing mask from {replacements['DWI_MASK']}")
     else:
         print("DWI Mask Strategy (Human): Will use dwi2mask as fallback")
+    
+    # ADDED 7/25/2025: Log distortion correction strategy
+    if has_fieldmaps:
+        print("Distortion Correction: Fieldmap-based (optimal)")
+    else:
+        print("Distortion Correction: None (consider acquiring fieldmaps for future scans)")
 
     for step in data['steps']:
         step_name = step['name']
@@ -628,17 +763,27 @@ def load_commands_legacy(file_path, input_path, output_path, dti_folder, is_nhp=
                 skipped_steps.append(f"{step_name} (Human - NHP only)")
                 continue
         
+        # ENHANCED 7/25/2025: Check conditional execution including fieldmap conditions
+        if 'conditional' in step:
+            condition = step['conditional']
+            
+            # Handle fieldmap conditions
+            if condition == 'fieldmap_available' and not has_fieldmaps:
+                skipped_steps.append(f"{step_name} (No fieldmaps available)")
+                continue
+            elif condition == 'no_fieldmap_fallback' and has_fieldmaps:
+                skipped_steps.append(f"{step_name} (Using fieldmap version)")
+                continue
+            elif condition == 'skip_if_preexisting_dwi_mask' and has_existing_dwi_mask:
+                skipped_steps.append(f"{step_name} (Using pre-existing DWI mask)")
+                continue
+        
         # Check if step requires specific FreeSurfer files (for humans)
         if not is_nhp and 'requires' in step:
             required_file = step['requires']
             if required_file not in replacements or not replacements[required_file]:
                 skipped_steps.append(f"{step_name} (Missing: {required_file})")
                 continue
-        
-        # Special handling for dwi2mask step when we have pre-existing mask (humans only)
-        if step_name == 'step8-dwi2mask' and has_existing_dwi_mask:
-            skipped_steps.append(f"{step_name} (Using pre-existing DWI mask for human)")
-            continue
         
         print(f"- Including step: {step_name}")
         
@@ -661,7 +806,7 @@ def load_commands_legacy(file_path, input_path, output_path, dti_folder, is_nhp=
         else:
             commands.append(f'if [ ! -f {validation_output} ]; then\n  {command_with_logging}\nfi')
     
-    # If we have a pre-existing DWI mask, add command to copy and convert it
+    # Handle pre-existing DWI mask commands
     if has_existing_dwi_mask:
         dwi_mask_commands = [
             f"# Copy and convert pre-existing DWI brain mask",
@@ -673,14 +818,14 @@ def load_commands_legacy(file_path, input_path, output_path, dti_folder, is_nhp=
             f"fi"
         ]
         
-        # Find the index where we should insert these commands (after step 7)
+        # Find insertion point (after bias correction)
         insert_index = 0
         for i, cmd in enumerate(commands):
-            if 'step7-dwibiascorrect' in cmd:
+            if 'step8-dwibiascorrect' in cmd:
                 insert_index = i + 1
                 break
         
-        # Insert the mask commands
+        # Insert mask commands
         for i, mask_cmd in enumerate(dwi_mask_commands):
             commands.insert(insert_index + i, mask_cmd)
     
@@ -748,11 +893,9 @@ def create_skullstrip_command(input_image, is_nhp):
     
     return command
 
+# ENHANCED 7/25/2025: Added fieldmap detection to the test function
 def test_dti_detection(subject_folder):
-    """
-    Standalone test function to debug DTI directory detection.
-    Usage: python run_pipeline_legacy.py --test /path/to/subject
-    """
+    """Standalone test function to debug DTI directory detection."""
     print(f"=== DTI DIRECTORY DETECTION TEST ===")
     print(f"Subject folder: {subject_folder}")
     
@@ -760,7 +903,6 @@ def test_dti_detection(subject_folder):
         print("ERROR: Subject folder does not exist!")
         return
     
-    # List all directories in subject folder
     try:
         all_dirs = [d for d in os.listdir(subject_folder) if os.path.isdir(os.path.join(subject_folder, d))]
         print(f"All directories found: {sorted(all_dirs)}")
@@ -768,7 +910,6 @@ def test_dti_detection(subject_folder):
         print(f"ERROR: Cannot list directories: {e}")
         return
     
-    # Check for tmp directory at subject root level
     tmp_dir = os.path.join(subject_folder, "tmp")
     if os.path.exists(tmp_dir):
         print(f"✓ tmp directory exists at subject root")
@@ -783,14 +924,23 @@ def test_dti_detection(subject_folder):
     else:
         print(f"✗ tmp directory NOT found at subject root: {tmp_dir}")
     
-    # Test the find_dti_directory function
     dti_folder, dti_dirname = find_dti_directory(subject_folder)
     
     if dti_folder:
         print(f"SUCCESS: Found DTI directory: {dti_dirname}")
         print(f"Full path: {dti_folder}")
         
-        # Check for nifti2 directory (if DICOMs have been converted)
+        # ADDED 7/25/2025: Test fieldmap detection
+        print(f"\n=== FIELDMAP DETECTION TEST ===")
+        fieldmap_config = detect_fieldmap_configuration(subject_folder)
+        if fieldmap_config['available']:
+            print(f"✓ Fieldmaps detected: {fieldmap_config['type']}")
+            for key, file_info in fieldmap_config['files'].items():
+                print(f"  - {key}: {os.path.basename(file_info['nifti_path'])}")
+            print(f"  - DELTA_TE: {fieldmap_config['parameters']['DELTA_TE']:.6f}s")
+        else:
+            print("⚠ No fieldmaps detected")
+        
         nifti2_dir = os.path.join(dti_folder, "nifti2")
         if os.path.exists(nifti2_dir):
             print(f"✓ nifti2 directory exists")
@@ -804,7 +954,6 @@ def test_dti_detection(subject_folder):
         else:
             print(f"⚠ nifti2 directory not found (DICOMs not yet converted)")
         
-        # Check for mrtrix3_inputs (if files have been processed)
         mrtrix_inputs = os.path.join(dti_folder, "mrtrix3_inputs")
         if os.path.exists(mrtrix_inputs):
             print(f"✓ mrtrix3_inputs directory exists")
@@ -819,9 +968,10 @@ def test_dti_detection(subject_folder):
     else:
         print("FAILED: No DTI directory found")
 
+# ENHANCED 7/25/2025: Updated main function with fieldmap support messaging
 def main():
-    """Main function for legacy DTI pipeline."""
-    parser = argparse.ArgumentParser(description='Generate SLURM batch files for legacy DTI data.')
+    """Main function for legacy DTI pipeline with fieldmap support."""
+    parser = argparse.ArgumentParser(description='Generate SLURM batch files for legacy DTI data with fieldmap support.')
     parser.add_argument('subject_name', type=str, nargs='?', help='Name of the subject')
     parser.add_argument('subject_folder', type=str, nargs='?', help='Path to the subject folder')
     parser.add_argument('config_file', type=str, nargs='?', help='Path to the config json file')
@@ -838,7 +988,6 @@ def main():
                         help='Test DTI directory detection on given subject folder', 
                         required=False)
     
-    # Mutually exclusive group for species selection
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--nhp', dest='nhp', action='store_true', 
                        help='Use non-human primate model')
@@ -847,16 +996,13 @@ def main():
     
     args = parser.parse_args()
 
-    # Handle test mode
     if args.test:
         test_dti_detection(args.test)
         return
 
-    # Check required arguments for normal operation
     if not all([args.subject_name, args.subject_folder, args.config_file, args.command_file]):
         parser.error("subject_name, subject_folder, config_file, and command_file are required for normal operation")
 
-    # Set default to human if neither is selected
     if not (args.nhp or args.human):
         args.human = True
 
@@ -866,22 +1012,20 @@ def main():
     if args.human == True:
         args.nhp = False
 
-    # Additional logic to ensure no conflicting state
     if args.nhp and args.human:
         print("ERROR: Both --nhp and --human flags cannot be set simultaneously.")
         return
 
     print(f"Subject: {args.subject_name}")
     print(f"Species Selected: {'Non-Human Primate' if args.nhp else 'Human'}")
-    print(f"Pipeline Type: Legacy DTI Processing")
+    # ENHANCED 7/25/2025: Updated pipeline description
+    print(f"Pipeline Type: Legacy DTI Processing with Fieldmap Support")
     
-    # Find DTI directory (handles variable series numbers like DTI_S0006)
+    # Find DTI directory
     print("\n=== DTI DIRECTORY DETECTION ===")
     dti_folder, dti_dirname = find_dti_directory(args.subject_folder)
     if not dti_folder:
         print("ERROR: DTI directory not found")
-        # Show debug info
-        print("Available directories:")
         all_dirs = [d for d in os.listdir(args.subject_folder) if os.path.isdir(os.path.join(args.subject_folder, d))]
         for d in sorted(all_dirs):
             print(f"  - {d}")
@@ -894,50 +1038,53 @@ def main():
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
-    # Load config options into global var space        
     load_global_config(args.config_file)
     
-    # Ensure scripts directory exists
     scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts')
     if not os.path.exists(scripts_dir):
         print(f"Creating scripts directory at {scripts_dir}")
         os.makedirs(scripts_dir, exist_ok=True)
     
-    # Build the mrtrix3 input files from DICOMs (following original pipeline pattern)
+    # DICOM to NIFTI conversion
     print("\n=== DICOM TO NIFTI CONVERSION ===")
     
-    # Check if tmp directory with DICOMs exists at subject root level
     tmp_dir = os.path.join(args.subject_folder, 'tmp')
     if not os.path.exists(tmp_dir):
         print(f"ERROR: tmp directory not found at {tmp_dir}")
         print("Legacy DTI data should have raw DICOMs in tmp/ directory at subject root")
         exit(1)
     
-    # Check if DICOMs exist in tmp
     try:
         tmp_files = os.listdir(tmp_dir)
         dicom_files = [f for f in tmp_files if f.lower().endswith(('.dcm', '.ima', '.dicom')) or not '.' in f]
         if not dicom_files:
             print(f"ERROR: No DICOM files found in {tmp_dir}")
-            print(f"Found files: {tmp_files[:10]}...")  # Show first 10 files
+            print(f"Found files: {tmp_files[:10]}...")
             exit(1)
         print(f"Found {len(dicom_files)} DICOM files in tmp/")
     except Exception as e:
         print(f"ERROR: Cannot access tmp directory: {e}")
         exit(1)
     
-    # Use ImageTypeChecker to convert DICOMs to NIFTI (like original pipeline)
     print("Converting DICOMs to NIFTI using ImageTypeChecker...")
     try:
-        # ImageTypeChecker processes the subject folder and creates nifti2/ in appropriate subdirectories
         checker = ImageTypeChecker(args.subject_folder, args.config_file)
         print("✓ DICOM to NIFTI conversion completed")
+        
+        # ADDED 7/25/2025: Check if fieldmaps were detected
+        fieldmap_summary = checker.get_fieldmap_summary()
+        if fieldmap_summary:
+            print("✓ Fieldmap images detected during conversion:")
+            for label, info in fieldmap_summary.items():
+                print(f"  - {label}: TE={info['echo_time']:.6f}s")
+        else:
+            print("ℹ No fieldmap images detected during conversion")
         
     except Exception as e:
         print(f"ERROR: DICOM conversion failed: {e}")
         exit(1)
     
-    # Create mrtrix3_inputs from nifti2 files
+    # Create mrtrix3_inputs
     print("\n=== CREATING MRTRIX3 INPUTS ===")
     try:
         target_dti_file = create_mrtrix3_inputs_from_nifti2(dti_folder, args.subject_folder)
@@ -946,10 +1093,9 @@ def main():
         print(f"ERROR: Failed to create mrtrix3_inputs: {e}")
         exit(1)
     
-    # Analyze DTI configuration
-    print("\n=== DTI CONFIGURATION ANALYSIS ===")
+    # ENHANCED 7/25/2025: Analyze DTI and fieldmap configuration
+    print("\n=== DTI & FIELDMAP CONFIGURATION ANALYSIS ===")
     
-    # Find and analyze DTI file (now standardized as DTI_MOSAIC.nii.gz)
     try:
         mrtrix3_inputs = os.path.join(args.subject_folder, "mrtrix3_inputs")
         dti_file = os.path.join(mrtrix3_inputs, "DTI_MOSAIC.nii.gz")
@@ -962,6 +1108,9 @@ def main():
         print(f"DTI Configuration: {shell_type}")
         print(f"B-values: {unique_bvals}")
         
+        # ADDED 7/25/2025: Detect fieldmap configuration
+        fieldmap_config = detect_fieldmap_configuration(args.subject_folder)
+        
         if shell_type not in ['single_shell_dti', 'single_shell_hardi']:
             print(f"WARNING: This pipeline is optimized for single-shell DTI, but detected {shell_type}")
             print("Consider using the multi-shell pipeline instead")
@@ -970,7 +1119,7 @@ def main():
         print(f"ERROR: Failed to analyze DTI data: {e}")
         exit(1)
     
-    # Check for DWI brain mask (humans only) - now uses dti_folder
+    # Check for DWI brain mask (humans only)
     print("\n=== DWI BRAIN MASK ANALYSIS ===")
     if not args.nhp:
         dwi_mask_files = find_dwi_brainmask_image(dti_folder)
@@ -982,7 +1131,7 @@ def main():
         print("NHP processing: Using T1w-based mask approach")
         dwi_mask_files = []
     
-    # For humans, analyze FreeSurfer availability
+    # Analyze FreeSurfer availability (humans only)
     if not args.nhp:
         print("\n=== FREESURFER ANALYSIS ===")
         parcellation_info = select_parcellation_strategy(args.subject_folder, args.nhp)
@@ -993,14 +1142,14 @@ def main():
     input_t1 = find_t1_image(args.subject_folder)
     skull_strip_cmd = create_skullstrip_command(input_t1[0], args.nhp)
         
-    # Load commands and convert to a list - now passes dti_folder
+    # Load commands
     print("\n=== BUILDING COMMAND LIST ===")
     commands = load_commands_legacy(args.command_file, args.subject_folder, output_path, dti_folder, args.nhp, args.rerun)
     
-    # Replace PLACEHOLDER_SUBJECT with actual subject name
+    # Replace subject name placeholder
     commands = [cmd.replace('PLACEHOLDER_SUBJECT', args.subject_name) for cmd in commands]
     
-    # Add final reporting command
+    # Add final reporting
     species_flag = 'nhp' if args.nhp else 'human'
     fs_version = 'none'
     
@@ -1009,6 +1158,7 @@ def main():
         if parcellation_info['freesurfer_available']:
             fs_version = parcellation_info['freesurfer_version']
     
+    # ENHANCED 7/25/2025: Updated reporting command to include fieldmap information
     reporting_cmd = f"""
 # Generate standardized report
 python3 /scripts/generate_standardized_report.py \\
@@ -1016,12 +1166,13 @@ python3 /scripts/generate_standardized_report.py \\
     --output_dir {output_path} \\
     --species {species_flag} \\
     --freesurfer_version {fs_version} \\
-    --pipeline_type legacy_dti \\
+    --pipeline_type legacy_dti_fieldmap \\
+    --fieldmap_available {fieldmap_config['available']} \\
     > {output_path}/reporting_log.txt 2>&1
 """
     commands.append(reporting_cmd)
     
-    # Create bash shell script
+    # Create batch script
     print("\n=== CREATING BATCH SCRIPT ===")
     batch_script = create_bash_script(commands, os.path.join(output_path, f"{args.subject_name}_dti_script.sh"))
     
@@ -1030,13 +1181,18 @@ python3 /scripts/generate_standardized_report.py \\
     slurm_creator.create_bind_string(args.subject_folder)
     slurm_creator.create_batch_file(batch_script, args.nhp, skull_strip_cmd)
     
-    print(f"\n=== LEGACY DTI PIPELINE PREPARATION COMPLETE ===")
+    # ENHANCED 7/25/2025: Updated final summary with fieldmap information
+    print(f"\n=== ENHANCED LEGACY DTI PIPELINE PREPARATION COMPLETE ===")
     print(f"Subject: {args.subject_name}")
     print(f"Species: {'NHP' if args.nhp else 'Human'}")
-    print(f"Pipeline: Legacy Single-Shell DTI")
+    print(f"Pipeline: Legacy Single-Shell DTI with Fieldmap Support")
     print(f"DTI Directory: {dti_dirname}")
     print(f"Shell Type: {shell_type}")
     print(f"B-values: {unique_bvals}")
+    print(f"Fieldmap Available: {'Yes' if fieldmap_config['available'] else 'No'}")
+    if fieldmap_config['available']:
+        print(f"Fieldmap Type: {fieldmap_config['type']}")
+        print(f"DELTA_TE: {fieldmap_config['parameters']['DELTA_TE']:.6f}s")
     print(f"Output Directory: {output_path}")
     print(f"Total Commands: {len(commands)}")
     
@@ -1052,35 +1208,6 @@ python3 /scripts/generate_standardized_report.py \\
     
     print(f"Batch Script: {batch_script}")
     print(f"Ready for SLURM submission!")
-
-def list_dti_directories(subject_folder):
-    """
-    Helper function to list all potential DTI directories for debugging.
-    Can be called independently to check what DTI directories are found.
-    """
-    print(f"Searching for DTI directories in: {subject_folder}")
-    
-    patterns = [
-        'DTI_S*', 'DTI*', 'DWI_S*', 'DWI*', 'DIFFUSION_S*', 'DIFFUSION*'
-    ]
-    
-    found_dirs = []
-    for pattern in patterns:
-        dirs = glob.glob(os.path.join(subject_folder, pattern))
-        dirs = [d for d in dirs if os.path.isdir(d)]
-        found_dirs.extend(dirs)
-    
-    # Remove duplicates and sort
-    found_dirs = sorted(list(set(found_dirs)))
-    
-    print(f"Found {len(found_dirs)} potential DTI directories:")
-    for d in found_dirs:
-        dir_name = os.path.basename(d)
-        mrtrix_inputs = os.path.join(d, "mrtrix3_inputs")
-        has_inputs = os.path.exists(mrtrix_inputs)
-        print(f"  - {dir_name} {'(has mrtrix3_inputs)' if has_inputs else '(no mrtrix3_inputs)'}")
-    
-    return found_dirs
 
 if __name__ == "__main__":
     main()
