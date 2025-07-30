@@ -164,7 +164,7 @@ class ImageTypeChecker:
         if not os.path.exists(output_path):
             os.makedirs(output_path)
         
-        command = f"dcm2niix -z y -m y -b y -i y -s y -o {output_path} {dicom_path}"
+        command = f"dcm2niix -z y -b y -i y -f %p_%t_%s -o {output_path} {dicom_path}"
         print(command)
         subprocess.run(command, shell=True, check=True)
 
@@ -200,8 +200,7 @@ class ImageTypeChecker:
         
         # Check if this is a fieldmap sequence
         fieldmap_indicators = [
-            "FIELDMAP", "FIELD_MAP", "B0MAP", "B0_MAP", 
-            "GRE_FIELD_MAPPING", "B0_MAPPING", "DISTORTION"
+            "FIELD_MAPPING_DTI"
         ]
         
         is_fieldmap_sequence = any(indicator in series_description for indicator in fieldmap_indicators)
@@ -210,7 +209,7 @@ class ImageTypeChecker:
         has_magnitude = "MAGNITUDE" in image_type_str
         has_phase = "PHASE" in image_type_str
         
-        if is_fieldmap_sequence or has_magnitude or has_phase:
+        if (is_fieldmap_sequence and has_magnitude) or (is_fieldmap_sequence and has_phase):
             if has_magnitude:
                 # Determine which magnitude image (TE1 or TE2)
                 if echo_time < 0.005:  # Typically TE1 is around 2-3ms

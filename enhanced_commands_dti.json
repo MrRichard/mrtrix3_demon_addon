@@ -55,7 +55,6 @@
       "description": "Remove Gibbs ringing artifacts (recommended for single-shell)"
     },
     {
-      "_comment_fieldmap_steps_added_20250725": "FIELDMAP PREPROCESSING STEPS ADDED 7/25/2025 - Steps 6b-6f handle dual-echo fieldmap preparation",
       "name": "step6b-fieldmap_mag_convert",
       "cmd": "mrconvert FIELDMAP_MAG2 OUTPUT/fieldmap_mag.mif -force",
       "validation_output": "OUTPUT/fieldmap_mag.mif",
@@ -77,15 +76,22 @@
       "conditional": "fieldmap_available"
     },
     {
-      "name": "step6e-fieldmap_prepare",
-      "cmd": "mrconvert OUTPUT/fieldmap_phase.mif OUTPUT/fieldmap_phase.nii.gz -force && fsl_prepare_fieldmap SIEMENS OUTPUT/fieldmap_phase.nii.gz OUTPUT/fieldmap_mag_brain.nii.gz OUTPUT/fieldmap_rads.nii.gz DELTA_TE",
+      "name": "step6e-fieldmap_phasediff_convert",
+      "cmd": "mrconvert OUTPUT/fieldmap_phase.mif OUTPUT/fieldmap_phase.nii.gz -force",
+      "validation_output": "OUTPUT/fieldmap_phase.nii.gz",
+      "description": "Convert phase mif to nii.gz",
+      "conditional": "fieldmap_available"
+    },
+    {
+      "name": "step6g-fieldmap_prepare",
+      "cmd": "fsl_prepare_fieldmap SIEMENS OUTPUT/fieldmap_phase.nii.gz OUTPUT/fieldmap_mag_brain.nii.gz OUTPUT/fieldmap_rads.nii.gz DELTA_TE",
       "validation_output": "OUTPUT/fieldmap_rads.nii.gz",
       "description": "Prepare fieldmap in radians for TOPUP (assumes Siemens format)",
       "conditional": "fieldmap_available",
       "notes": "Change SIEMENS to appropriate vendor if needed"
     },
     {
-      "name": "step6f-create_acqparams",
+      "name": "step6h-create_acqparams",
       "cmd": "echo '0 1 0 READOUTTIME' > OUTPUT/acqparams.txt",
       "validation_output": "OUTPUT/acqparams.txt", 
       "description": "Create acquisition parameters file for TOPUP (assumes j PE direction)",
@@ -93,19 +99,18 @@
       "notes": "Adjust phase encoding direction vector based on PE_DIR parameter"
     },
     {
-      "_comment_preprocessing_enhanced_20250725": "PREPROCESSING ENHANCED 7/25/2025 - Added fieldmap-based and fallback versions",
-      "name": "step7-dwifslpreproc_fieldmap",
-      "cmd": "dwifslpreproc OUTPUT/dwi_den_degibbs.mif OUTPUT/dwi_den_preproc.mif -rpe_none -pe_dir PE_DIR -eddy_options \"--slm=linear --data_is_shelled\" -topup_options \"--fmap=OUTPUT/fieldmap_rads.nii.gz --datain=OUTPUT/acqparams.txt\" -force -nthreads 8 -readout_time READOUTTIME",
-      "validation_output": "OUTPUT/dwi_den_preproc.mif",
-      "description": "FSL-based preprocessing with fieldmap-based distortion correction",
+      "name": "step6i-create_hz",
+      "cmd": "fslmaths OUTPUT/fieldmap_rads.nii.gz -div 6.28318530718 OUTPUT/fieldmap_hz.nii.gz",
+      "validation_output": "OUTPUT/fieldmap_hz.nii.gz", 
+      "description": "Convert RAD file to HZ for dwifslpreproc",
       "conditional": "fieldmap_available"
     },
     {
-      "name": "step7-dwifslpreproc_fallback",
-      "cmd": "dwifslpreproc OUTPUT/dwi_den_degibbs.mif OUTPUT/dwi_den_preproc.mif -rpe_none -pe_dir PE_DIR -eddy_options \"--slm=linear --data_is_shelled\" -force -nthreads 8 -readout_time READOUTTIME",
+      "name": "step7-dwifslpreproc_fieldmap",
+      "cmd": "dwifslpreproc OUTPUT/dwi_den_degibbs.mif OUTPUT/dwi_den_preproc.mif -rpe_none -pe_dir PE_DIR -eddy_options \"--slm=linear --data_is_shelled\" -topup_options \"--fmap=OUTPUT/fieldmap_rads.nii.gz --datain=OUTPUT/acqparams.txt --field=OUTPUT/fieldmap_hz \" -force -nthreads 8 -readout_time READOUTTIME",
       "validation_output": "OUTPUT/dwi_den_preproc.mif",
-      "description": "FSL-based preprocessing WITHOUT distortion correction (fallback if no fieldmap)",
-      "conditional": "no_fieldmap_fallback"
+      "description": "FSL-based preprocessing with fieldmap-based distortion correction",
+      "conditional": "fieldmap_available"
     },
     {
       "name": "step8-dwibiascorrect",
@@ -122,16 +127,9 @@
     },
     {
       "name": "step10-dwi2response_tournier",
-      "cmd": "dwi2response tournier OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_tournier.txt -voxels OUTPUT/voxels_tournier.mif -force",
+      "cmd": "dwi2response tournier OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_tournier.txt -mask OUTPUT/mask.mif -voxels OUTPUT/voxels_tournier.mif -force",
       "validation_output": "OUTPUT/voxels_tournier.mif", 
       "description": "Tournier response function estimation (primary method for single-shell)"
-    },
-    {
-      "name": "step11-dwi2response_fa_backup",
-      "cmd": "dwi2response fa OUTPUT/dwi_den_preproc_unbiased.mif OUTPUT/wm_fa.txt -erode 3 -force",
-      "validation_output": "OUTPUT/wm_fa.txt",
-      "description": "FA-based response function (backup method)",
-      "conditional": "backup_response"
     },
     {
       "name": "step12-dwi2fod_csd",

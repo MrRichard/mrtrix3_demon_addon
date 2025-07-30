@@ -65,7 +65,7 @@ def extract_fieldmap_parameters(fieldmap_files):
                 print(f"WARNING: Could not read {mag_key} JSON: {e}")
     
     # Calculate DELTA_TE
-    delta_te = 0.00246  # Default Siemens value
+    delta_te = 2.46  # Default Siemens value
     if len(echo_times) == 2:
         delta_te = abs(echo_times[1] - echo_times[0])
         print(f"Calculated DELTA_TE: {delta_te:.6f}s")
@@ -158,7 +158,11 @@ def find_t1_image(input_path):
 
 def find_t1_brainmask_image(input_path):
     """Find T1 brain mask file."""
-    pattern = os.path.join(os.path.join(input_path,'nifti','cat12'), '*tfl3d116*_bet_mask.nii.gz')
+    if os.path.isdir(os.path.join(input_path,'nifti','cat12')):
+        pattern = os.path.join(os.path.join(input_path,'nifti','cat12'), '*tfl3d116*_bet_mask.nii*')
+    else:
+        pattern = os.path.join(os.path.join(input_path,'nifti','vbm8'), '*tfl3d116*_bet_mask.nii*')
+        
     matching_files = glob.glob(pattern)
     
     matching_files = [f.replace('.info', '.nii') for f in matching_files]
@@ -275,8 +279,7 @@ def find_dti_mosaic(dti_folder, subject_folder):
         return None
     
     patterns = [
-        "*DTI*.nii.gz", "*dti*.nii.gz", "*ep2d_diff*.nii.gz",
-        "*DIFFUSION*.nii.gz", "*diff*.nii.gz", "*dwi*.nii.gz", "*MOSAIC*.nii.gz"
+        "*DTI*.nii.gz", "*dti*.nii.gz"
     ]
     
     dti_files = []
@@ -646,23 +649,24 @@ def create_enhanced_replacements_legacy(input_path, output_path, dti_folder, sub
     if fieldmap_config['available']:
         fieldmap_files = fieldmap_config['files'] 
         fieldmap_params = fieldmap_config['parameters']
+        delta_te=(fieldmap_params.get('DELTA_TE', 0.00246))*1000
         
         replacements.update({
             "FIELDMAP_MAG1": fieldmap_files.get('FIELDMAP_MAG1', {}).get('nifti_path', ''),
             "FIELDMAP_MAG2": fieldmap_files.get('FIELDMAP_MAG2', {}).get('nifti_path', ''),
             "FIELDMAP_PHASEDIFF": fieldmap_files.get('FIELDMAP_PHASEDIFF', {}).get('nifti_path', ''),
-            "DELTA_TE": str(fieldmap_params.get('DELTA_TE', 0.00246)),
+            "DELTA_TE": str(delta_te),
             "FIELDMAP_AVAILABLE": "true"
         })
         print(f"✓ Fieldmap distortion correction will be applied")
-        print(f"  - DELTA_TE: {fieldmap_params.get('DELTA_TE', 0.00246):.6f}s")
+        print(f"  - DELTA_TE: {str(delta_te)}")
         print(f"  - Type: {fieldmap_config['type']}")
     else:
         replacements.update({
             "FIELDMAP_MAG1": "",
             "FIELDMAP_MAG2": "",
             "FIELDMAP_PHASEDIFF": "",
-            "DELTA_TE": "0.00246",
+            "DELTA_TE": "2.46",
             "FIELDMAP_AVAILABLE": "false"
         })
         print("⚠ No fieldmaps detected - using standard preprocessing without distortion correction")
@@ -1192,7 +1196,7 @@ python3 /scripts/generate_standardized_report.py \\
     print(f"Fieldmap Available: {'Yes' if fieldmap_config['available'] else 'No'}")
     if fieldmap_config['available']:
         print(f"Fieldmap Type: {fieldmap_config['type']}")
-        print(f"DELTA_TE: {fieldmap_config['parameters']['DELTA_TE']:.6f}s")
+        print(f"DELTA_TE: {fieldmap_config['parameters']['DELTA_TE']*1000:.6f}s")
     print(f"Output Directory: {output_path}")
     print(f"Total Commands: {len(commands)}")
     
