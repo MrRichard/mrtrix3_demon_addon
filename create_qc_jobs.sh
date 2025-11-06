@@ -18,7 +18,7 @@ for x in ./jobs/*.slurm; do
 module load singularity
 Xvfb :99 -ac -nolisten tcp -noreset -screen 0 1024x768x24 &
 export DISPLAY=:99
-singularity run -B /isilon/datalake/riipl/original/PACE:/data/ ./container/mrtrix3_with_ants_new.sif bash ./create_qc_images.sh /data/${job_basename}
+singularity run -B /isilon/datalake/riipl/original/MESA/MESACORE/:/data/ ./container/mrtrix3_with_ants_new.sif bash ./create_qc_images.sh /data/${job_basename}
 
 EOL
 

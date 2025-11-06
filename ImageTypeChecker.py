@@ -247,7 +247,7 @@ class ImageTypeChecker:
         if "AP" in series_description.replace('>',''):
             return f"A2P_{suffix}"
         
-        if ("AP" not in series_description and "PA" not in series_description):
+        if ("AP" not in series_description and "PA" not in series_description) and "AF4" in series_description:
             return f"A2P_{suffix}"
         
         return False
