@@ -30,3 +30,5 @@ test*.py
 slurm-*
 *-tmp-*/
 *analysis*/
+
+CLAUDE.md
