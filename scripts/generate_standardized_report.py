@@ -3,6 +3,8 @@
 Universal Standardized Reporting System for Human and NHP Connectomes
 Generates consistent reports regardless of species or available atlases.
 Enhanced with comprehensive graph theory metrics.
+
+Uses connectivity_shared package for standardized metrics across pipelines.
 """
 
 import argparse
@@ -13,6 +15,16 @@ import numpy as np
 import logging
 from datetime import datetime
 import glob
+
+# Import shared connectivity utilities
+try:
+    from connectivity_shared import GraphMetrics as SharedGraphMetrics
+    from connectivity_shared import load_connectivity_matrix, save_connectivity_matrix
+    SHARED_METRICS_AVAILABLE = True
+except ImportError:
+    SHARED_METRICS_AVAILABLE = False
+    print("Note: connectivity_shared not installed. Using local PureNumpyGraphMetrics.")
+    print("For standardized cross-pipeline metrics, install: pip install -e /path/to/connectivity_shared")
 
 class PureNumpyGraphMetrics:
     """
@@ -363,24 +375,33 @@ class ConnectomeReporter:
         self.subject_name = subject_name
         self.output_dir = output_dir
         self.species = species
-        self.input_type=input_type
+        self.input_type = input_type
         self.freesurfer_version = freesurfer_version
-        self.graph_calculator = PureNumpyGraphMetrics()
+
+        # Use shared module if available, otherwise fall back to local implementation
+        if SHARED_METRICS_AVAILABLE:
+            self.graph_calculator = SharedGraphMetrics(n_random_networks=100, seed=42)
+            self.use_shared_metrics = True
+        else:
+            self.graph_calculator = PureNumpyGraphMetrics()
+            self.use_shared_metrics = False
+
         self.report = {
             'subject_id': subject_name,
             'species': species,
             'processing_date': datetime.now().isoformat(),
-            'pipeline_version': 'MRTRIX3_Enhanced_v2.0',
+            'pipeline_version': 'MRTRIX3_Enhanced_v2.1',
             'freesurfer_version': freesurfer_version,
+            'metrics_implementation': 'connectivity_shared' if self.use_shared_metrics else 'PureNumpyGraphMetrics',
             'connectomes': {},
             'quality_metrics': {},
             'graph_metrics': {},
             'processing_summary': {},
             'warnings': []
         }
-        
+
         # Setup logging
-        logging.basicConfig(level=logging.INFO, 
+        logging.basicConfig(level=logging.INFO,
                           format='%(asctime)s - %(levelname)s - %(message)s')
         self.logger = logging.getLogger(__name__)
 
@@ -499,14 +520,29 @@ class ConnectomeReporter:
             'sparsity': round(sparsity, 6)
         }
 
-    def calculate_graph_metrics(self, matrix):
+    def calculate_graph_metrics(self, matrix, atlas_name=None):
         """Calculate comprehensive graph theory metrics using enhanced implementation."""
         if matrix is None:
             return {}
-        
-        # Use the enhanced graph calculator
-        enhanced_metrics = self.graph_calculator.calculate_comprehensive_metrics(matrix)
-        
+
+        if self.use_shared_metrics:
+            # Use connectivity_shared module (NetworkX-based)
+            result = self.graph_calculator.compute_all(
+                matrix,
+                modality="dwi",
+                atlas=atlas_name,
+                subject_id=self.subject_name,
+            )
+            enhanced_metrics = result.global_metrics.copy()
+            # Add any warnings
+            if result.warnings:
+                for warning in result.warnings:
+                    if warning not in self.report['warnings']:
+                        self.report['warnings'].append(f"[{atlas_name}] {warning}")
+        else:
+            # Use local PureNumpyGraphMetrics implementation
+            enhanced_metrics = self.graph_calculator.calculate_comprehensive_metrics(matrix)
+
         return enhanced_metrics
 
     def check_processing_quality(self):
@@ -598,11 +634,11 @@ class ConnectomeReporter:
         # Analyze each connectome
         for connectome_name, filepath in available_connectomes.items():
             self.logger.info(f"Analyzing connectome: {connectome_name}")
-            
+
             matrix = self.load_connectome(filepath)
             if matrix is not None:
                 basic_metrics = self.calculate_basic_metrics(matrix, connectome_name)
-                graph_metrics = self.calculate_graph_metrics(matrix)
+                graph_metrics = self.calculate_graph_metrics(matrix, atlas_name=connectome_name)
                 
                 # Add FreeSurfer version info for FreeSurfer-derived connectomes
                 connectome_info = {
