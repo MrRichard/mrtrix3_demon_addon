@@ -1,284 +1,257 @@
+#!/usr/bin/env python3
+"""
+MRtrix3 DWI Pipeline for BIDS-formatted data.
+
+This script processes BIDS-formatted diffusion-weighted imaging data
+to generate structural connectivity matrices using MRtrix3.
+
+Usage:
+    python run_pipeline.py --bids-dir /path/to/bids --subject sub-01 [options]
+
+Example:
+    python run_pipeline.py --bids-dir /data/bids --subject sub-01 --session ses-01 --human
+"""
+
 import argparse
-from SlurmBatch import SLURMFileCreator
-from ImageTypeChecker import ImageTypeChecker
-import glob
 import json
 import os
-import logging
+import sys
+from typing import Optional, List, Dict, Any, Tuple
 
-def find_t1_image(input_path):
-    # find T1 anat file
-    pattern = os.path.join(os.path.join(input_path,'nifti'), '*-tfl3d116*.info')
-    matching_files = glob.glob(pattern)
-    
-    # Replace the suffix ".info" with ".nii" for each matching file
-    matching_files = [f.replace('.info', '.nii') for f in matching_files]
-    
-    return matching_files
+from bids_discovery import (
+    BIDSLayout,
+    create_bids_layout,
+    print_layout_summary,
+    extract_fieldmap_parameters,
+    detect_shell_configuration,
+)
+from SlurmBatch import SLURMFileCreator
 
-def find_t1_brainmask_image(input_path):
-    # find T1 anat file
-    pattern = os.path.join(os.path.join(input_path,'nifti','cat12'), '*tfl3d116*_bet_mask.nii.gz') #-tfl3d116_bet.nii.gz
-    matching_files = glob.glob(pattern)
-    
-    # Replace the suffix ".info" with ".nii" for each matching file
-    matching_files = [f.replace('.info', '.nii') for f in matching_files]
-    
-    return matching_files
 
-def find_dwi_brainmask_image(input_path):
+def load_config(config_path: str) -> dict:
+    """Load pipeline configuration from JSON file."""
+    with open(config_path, 'r') as f:
+        return json.load(f)
+
+
+def load_commands(command_file: str) -> dict:
+    """Load command definitions from JSON file."""
+    with open(command_file, 'r') as f:
+        return json.load(f)
+
+
+def create_replacements(
+    layout: BIDSLayout,
+    config: dict,
+    is_nhp: bool = False,
+    external_mask: Optional[str] = None
+) -> Dict[str, str]:
     """
-    Find pre-existing diffusion brain mask (*epb51_T2_mask.nii) in the DTI folder.
-    This is used for HUMAN processing only. NHP processing uses T1w-based masks.
+    Create replacement dictionary for command templates.
+
+    Args:
+        layout: BIDSLayout with discovered file paths
+        config: Pipeline configuration
+        is_nhp: Whether processing non-human primate data
+        external_mask: Optional path to external brain mask
+
+    Returns:
+        Dictionary mapping placeholder names to actual values
     """
-    # Look in the DTI folder for the pre-existing diffusion brain mask
-    dti_folder = os.path.join(input_path, 'DTI')
-    pattern = os.path.join(dti_folder, '*epb51_T2_mask.nii')
-    matching_files = glob.glob(pattern)
-    
-    if not matching_files:
-        # Also try with .nii.gz extension
-        pattern_gz = os.path.join(dti_folder, '*epb51_T2_mask.nii.gz')
-        matching_files = glob.glob(pattern_gz)
-    
-    if matching_files:
-        print(f"Found pre-existing DWI brain mask: {matching_files[0]}")
-        return matching_files
-    else:
-        print(f"WARNING: No pre-existing DWI brain mask found in {dti_folder}")
-        print("Expected pattern: *epb51_T2_mask.nii or *epb51_T2_mask.nii.gz")
-        return []
-
-def find_t2_image(input_path):
-    # find T1 anat file
-    pattern = os.path.join(os.path.join(input_path,'nifti'), '*-spc2*.info')
-    matching_files = glob.glob(pattern)
-    
-    # Replace the suffix ".info" with ".nii" for each matching file
-    matching_files = [f.replace('.info', '.nii') for f in matching_files]
-    
-    return matching_files
-
-def find_flair_image(input_path):
-    # find FLAIR image (optional - not used in current pipeline)
-    pattern = os.path.join(os.path.join(input_path,'nifti'), '*-spcir*.info')
-    matching_files = glob.glob(pattern)
-    
-    # Replace the suffix ".info" with ".nii" for each matching file
-    matching_files = [f.replace('.info', '.nii') for f in matching_files]
-    
-    return matching_files
-
-def check_mrtrix3_inputs_exists(input_path):
-    """
-    Check if mrtrix3_inputs directory exists and contains valid files.
-    Returns (exists, is_valid, message)
-    """
-    mrtrix3_inputs_dir = os.path.join(input_path, "mrtrix3_inputs")
-    
-    if not os.path.exists(mrtrix3_inputs_dir):
-        return False, False, f"mrtrix3_inputs directory does not exist: {mrtrix3_inputs_dir}"
-    
-    if not os.path.isdir(mrtrix3_inputs_dir):
-        return False, False, f"mrtrix3_inputs exists but is not a directory: {mrtrix3_inputs_dir}"
-    
-    # Check for required files
-    required_patterns = [
-        '*_MOSAIC.nii.gz',  # DWI data
-        '*_MOSAIC.json'     # DWI metadata
-    ]
-    
-    missing_files = []
-    for pattern in required_patterns:
-        files = glob.glob(os.path.join(mrtrix3_inputs_dir, pattern))
-        if not files:
-            missing_files.append(pattern)
-    
-    if missing_files:
-        return True, False, f"mrtrix3_inputs directory exists but missing required files: {missing_files}"
-    
-    # Additional validation: check if we can find MOSAIC files for processing
-    try:
-        large_mosaic, small_mosaic = find_largest_and_smallest_MOSAIC(input_path)
-        if not large_mosaic or not small_mosaic:
-            return True, False, "mrtrix3_inputs directory exists but could not find valid MOSAIC files"
-    except Exception as e:
-        return True, False, f"mrtrix3_inputs directory exists but validation failed: {str(e)}"
-    
-    return True, True, f"Valid mrtrix3_inputs directory found: {mrtrix3_inputs_dir}"
-
-def find_largest_and_smallest_MOSAIC(input_path):
-    # find the largest and smallest MOSAIC files in the mrtrix3_inputs directory
-    folder_path = os.path.join(input_path, "mrtrix3_inputs")
-
-    # list of all .nii files in the folder, ignoring those with 'PHASE' or 'SBREF'
-    nii_files = [f for f in os.listdir(folder_path) if f.endswith('.nii.gz') and 'PHASE' not in f and 'SBREF' not in f]
-
-    # check if there are any .nii.gz files
-    if nii_files:
-        # get sizes of the files
-        file_sizes = {f: os.path.getsize(os.path.join(folder_path, f)) for f in nii_files}
-
-        # get the max and min file sizes 
-        max_size = max(file_sizes.values())
-        min_size = min(file_sizes.values())
-
-        # get all files with the max and min sizes
-        max_size_files = [f for f, size in file_sizes.items() if size == max_size]
-        min_size_files = [f for f, size in file_sizes.items() if size == min_size]
-
-        # if more than one file for max size, check if "A2P_MOSAIC.nii" is in the list and return it
-        if len(max_size_files) > 1 and "A2P_MOSAIC.nii.gz" in max_size_files:
-            largest_image = "A2P_MOSAIC.nii.gz"
-        else:
-            largest_image = max_size_files[0]
-        
-        # if more than one file for min size, check if "P2A_MOSAIC.nii" is in the list and return it
-        if len(min_size_files) > 1 and "P2A_MOSAIC.nii.gz" in min_size_files:
-            smallest_image = "P2A_MOSAIC.nii.gz"
-        else:
-            smallest_image = min_size_files[0]
-
-        return os.path.join(folder_path,largest_image), os.path.join(folder_path,smallest_image)
-    
-    # if no .nii files in the directory
-    else:
-        print("No .nii.gz files found in the mrtrix3_inputs directory")
-        return None, None
-    
-def parse_dir_codes(largest_file, smallest_file):
-    # Extract the prefixes by splitting the filenames
-    largest_basename = os.path.basename(largest_file)
-    smallest_basename = os.path.basename(smallest_file)
-    
-    # Determine the prefix and lower case code for the largest file
-    if largest_basename.startswith("A2P"):
-        larger_prefix = "A2P"
-        lower_case_code = "ap"
-    elif largest_basename.startswith("P2A"):
-        larger_prefix = "P2A"
-        lower_case_code = "pa"
-    else:
-        raise ValueError("Largest filename does not have a recognized prefix: expected 'A2P' or 'P2A'")
-
-    # Determine the prefix for the smallest file
-    if smallest_basename.startswith("A2P"):
-        smaller_prefix = "A2P"
-    elif smallest_basename.startswith("P2A"):
-        smaller_prefix = "P2A"
-    else:
-        raise ValueError("Smallest filename does not have a recognized prefix: expected 'A2P' or 'P2A'")
-    return larger_prefix, smaller_prefix, lower_case_code
-    
-def read_mosaic_json(input_file):
-    # Check if the input file has the expected format and create the corresponding JSON file path
-    if not input_file.endswith('_MOSAIC.nii.gz'):
-        raise ValueError("Input file must be a path to a *_MOSAIC.nii.gz file")
-
-    # Construct the path for the associated JSON file
-    json_file_path = input_file.replace('.nii.gz', '.json')
-
-    # Check if the JSON file exists
-    if not os.path.exists(json_file_path):
-        raise FileNotFoundError(f"No associated JSON file found at {json_file_path}")
-    # Read the associated JSON file and return the content as a dictionary
-    with open(json_file_path, 'r') as json_file:
-        json_data = json.load(json_file)
-    return json_data
-
-
-def load_commands(file_path, input_path, output_path, is_nhp=False, rerun=False):
-    
-    # load json commands file
-    with open(file_path, 'r') as f:
-        data = json.load(f)
-
-    # Identify the largest MOSAIC file
-    large_mosaic, small_mosaic = find_largest_and_smallest_MOSAIC(input_path)
-    mosaic_json = read_mosaic_json(large_mosaic)
-    larger_prefix, smaller_prefix, lower_case_code = parse_dir_codes(large_mosaic, small_mosaic)
-    readouttime = mosaic_json['TotalReadoutTime']
-    repetitiontime = mosaic_json['RepetitionTime']
-    
-    # Identify T1w input image
-    matching_t1w_files = find_t1_image(input_path)
-
-    # Identify T2 FLAIR image (optional - not used in current pipeline)
-    matching_flair_files = find_flair_image(input_path)
-    flair_file = matching_flair_files[0] if matching_flair_files else ""
-
-    # Identify NHP brain masks
-    matching_mask_file=''
-    if is_nhp:
-        matching_mask_file = matching_t1w_files[0].replace('.nii', '_pre_mask.nii.gz')
-        print(f'Preselecting mask file: {matching_mask_file}')
-    else:
-        matching_brainmask_images = find_t1_brainmask_image(input_path)
-        matching_mask_file = matching_brainmask_images[0]
-        print(f'Preselecting mask file: {matching_mask_file}')
-
-    print(f"T1w Image file: ${matching_t1w_files[0]}")
-    print(f"T2w Image file: ${matching_flair_files[0]}")
-
-    # build command list    
-    commands = []
-
-    # Define all text replacements
     replacements = {
-        "INPUT": input_path,
-        "OUTPUT": output_path,
-        "ANAT": matching_t1w_files[0],
-        "FLAIR" : matching_flair_files[0],
-        "TEMPLATE": '/templates',
-        "MASK": matching_mask_file,
-        "PIXDIM4" : str(repetitiontime),
-        "READOUTTIME" : str(readouttime),
-        "PRIMARY" : larger_prefix,
-        "SECONDARY" : smaller_prefix,
-        "PE_DIR" : lower_case_code
+        # BIDS DWI files
+        "DWI_AP": layout.dwi_ap or "",
+        "DWI_AP_BVEC": layout.dwi_ap_bvec or "",
+        "DWI_AP_BVAL": layout.dwi_ap_bval or "",
+        "DWI_PA": layout.dwi_pa or "",
+        "DWI_PA_BVEC": layout.dwi_pa_bvec or "",
+        "DWI_PA_BVAL": layout.dwi_pa_bval or "",
+
+        # Anatomical
+        "ANAT": layout.t1w or "",
+
+        # Directories
+        "OUTPUT": layout.output_dir or "",
+        "TEMPLATE": config.get('templates', '/templates'),
+
+        # DWI parameters
+        "PE_DIR": layout.pe_direction or "j",
+        "READOUTTIME": str(layout.total_readout_time or 0.1),
+
+        # Fieldmap files
+        "FIELDMAP_MAG1": layout.fmap_magnitude1 or "",
+        "FIELDMAP_MAG2": layout.fmap_magnitude2 or "",
+        "FIELDMAP_PHASEDIFF": layout.fmap_phasediff or "",
+
+        # FreeSurfer paths
+        "FREESURFER_DIR": layout.freesurfer_dir or "",
+        "FS_APARC_ASEG": layout.fs_aparc_aseg or "",
+        "FS_APARC_DK": layout.fs_aparc_dk or "",
+        "FS_APARC_DESTRIEUX": layout.fs_aparc_destrieux or "",
+        "FS_BRAIN": layout.fs_brain or "",
+        "FS_VERSION": layout.freesurfer_version or "none",
+
+        # External mask if provided
+        "EXTERNAL_MASK": external_mask or "",
+
+        # Processing config
+        "SPECIES": "nhp" if is_nhp else "human",
+        "SUBJECT_NAME": layout.subject,
     }
 
-    
-    for step in data['steps']:
-        print(f"- writing step: {step['name']}")
-        validation_output = step['validation_output']
-        for placeholder, value in replacements.items():
-            validation_output = validation_output.replace(placeholder, value)
-        
-        # create command scripts
-        command = step['cmd']
-        for placeholder, value in replacements.items():
-            command = command.replace(placeholder, value)
+    # Calculate DELTA_TE for fieldmap correction
+    if layout.fmap_phasediff_json and os.path.exists(layout.fmap_phasediff_json):
+        fmap_params = extract_fieldmap_parameters({
+            'phasediff': layout.fmap_phasediff,
+            'phasediff_json': layout.fmap_phasediff_json
+        })
+        delta_te = fmap_params.get('delta_te')
+        if delta_te:
+            # Convert to milliseconds for fsl_prepare_fieldmap
+            replacements["DELTA_TE"] = str(delta_te * 1000)
+        else:
+            replacements["DELTA_TE"] = "2.46"  # Default Siemens value
+    else:
+        replacements["DELTA_TE"] = "2.46"
 
-        # define output logs
-        log_file = os.path.join(output_path, f"{step['name']}_log.txt")
-        command_with_logging = f"{command} > {log_file} 2>&1"
+    return replacements
+
+
+def filter_steps(
+    steps: List[dict],
+    layout: BIDSLayout,
+    replacements: Dict[str, str],
+    is_nhp: bool = False,
+    has_external_mask: bool = False
+) -> Tuple[List[dict], List[str]]:
+    """
+    Filter pipeline steps based on available data and configuration.
+
+    Args:
+        steps: List of step definitions from command JSON
+        layout: BIDSLayout with discovered files
+        replacements: Replacement dictionary
+        is_nhp: Whether processing non-human primate data
+        has_external_mask: Whether an external mask was provided
+
+    Returns:
+        Tuple of (filtered_steps, skipped_step_reasons)
+    """
+    filtered = []
+    skipped = []
+
+    distortion_correction = layout.distortion_correction
+    shell_config = layout.shell_config
+
+    for step in steps:
+        step_name = step['name']
+
+        # Check species filter
+        if 'species' in step:
+            step_species = step['species']
+            if step_species == 'human' and is_nhp:
+                skipped.append(f"{step_name} (human only)")
+                continue
+            elif step_species == 'nhp' and not is_nhp:
+                skipped.append(f"{step_name} (NHP only)")
+                continue
+
+        # Check distortion correction filter
+        if 'distortion_correction' in step:
+            step_dc = step['distortion_correction']
+            if step_dc != distortion_correction:
+                skipped.append(f"{step_name} (requires {step_dc} distortion correction)")
+                continue
+
+        # Check shell configuration filter
+        if 'shell_config' in step:
+            step_shell = step['shell_config']
+            if step_shell != shell_config:
+                skipped.append(f"{step_name} (requires {step_shell})")
+                continue
+
+        # Check conditional execution
+        if 'conditional' in step:
+            condition = step['conditional']
+            if condition == 'skip_if_external_mask' and has_external_mask:
+                skipped.append(f"{step_name} (using external mask)")
+                continue
+
+        # Check requires field (FreeSurfer files)
+        if 'requires' in step:
+            required = step['requires']
+            if required not in replacements or not replacements[required]:
+                skipped.append(f"{step_name} (missing {required})")
+                continue
+
+        filtered.append(step)
+
+    return filtered, skipped
+
+
+def apply_replacements(text: str, replacements: Dict[str, str]) -> str:
+    """Apply all replacements to a text string."""
+    result = text
+    for placeholder, value in replacements.items():
+        result = result.replace(placeholder, value)
+    return result
+
+
+def build_commands(
+    steps: List[dict],
+    replacements: Dict[str, str],
+    output_dir: str,
+    rerun: bool = False
+) -> List[str]:
+    """
+    Build shell commands from step definitions.
+
+    Args:
+        steps: List of filtered step definitions
+        replacements: Replacement dictionary
+        output_dir: Output directory path
+        rerun: If True, always run steps (skip output checks)
+
+    Returns:
+        List of shell command strings
+    """
+    commands = []
+
+    for step in steps:
+        step_name = step['name']
+        cmd = apply_replacements(step['cmd'], replacements)
+        validation_output = apply_replacements(step['validation_output'], replacements)
+
+        log_file = os.path.join(output_dir, f"{step_name}_log.txt")
+        command_with_logging = f"{cmd} > {log_file} 2>&1"
 
         if rerun:
             commands.append(command_with_logging)
         else:
+            # Wrap in conditional to skip if output exists
             commands.append(f'if [ ! -f {validation_output} ]; then\n  {command_with_logging}\nfi')
+
     return commands
 
-def create_skullstrip_command(input_image, is_nhp):
-    if is_nhp:
-        # Construct the command for non-human primates using deepbet's muSkullStrip
-        # Assuming `selected_model.model` and output directory locations are defined elsewhere
-        model_path = "/UNet_Model/models/Site-All-T-epoch_36.model"
-        output_dir = os.path.dirname(input_image)
-        command = f"python3 /UNet_Model/muSkullStrip.py -in {input_image} -model {model_path} -out {output_dir}"
-    else: 
-        print("Human image processing uses dwi2mask fsl in pipeline")
-        return False
-    
-    # Return the constructed command
-    return command
-    
-def create_bash_script(commands, output_file):
+
+def create_bash_script(commands: List[str], output_file: str) -> str:
+    """
+    Create a bash script with all commands.
+
+    Args:
+        commands: List of shell commands
+        output_file: Path to write the script
+
+    Returns:
+        Path to the created script
+    """
     with open(output_file, 'w') as f:
         f.write("#!/bin/bash\n")
-        f.write("\n# Set up environment variables for MRtrix3 and FreeSurfer\n")
-        f.write("# Fix for MRtrix3 path - explicitly set to /opt/mrtrix3 if it exists\n")
+        f.write("\n# MRtrix3 DWI Pipeline - Generated Script\n")
+        f.write("# This script was automatically generated by run_pipeline.py\n\n")
+
+        # Environment setup
+        f.write("# Set up environment variables for MRtrix3 and FreeSurfer\n")
         f.write("if [ -d '/opt/mrtrix3' ]; then\n")
         f.write("    export MRTRIX3_DIR='/opt/mrtrix3'\n")
         f.write("elif [ -d '/usr/local/mrtrix3' ]; then\n")
@@ -288,9 +261,8 @@ def create_bash_script(commands, output_file):
         f.write("else\n")
         f.write("    echo 'WARNING: MRtrix3 directory not found, using default'\n")
         f.write("    export MRTRIX3_DIR='/opt/mrtrix3'\n")
-        f.write("fi\n")
-        f.write("\n")
-        f.write("# Set FreeSurfer path\n")
+        f.write("fi\n\n")
+
         f.write("if [ -d '/opt/freesurfer' ]; then\n")
         f.write("    export FREESURFER_HOME='/opt/freesurfer'\n")
         f.write("elif [ -d '/usr/local/freesurfer' ]; then\n")
@@ -300,520 +272,316 @@ def create_bash_script(commands, output_file):
         f.write("else\n")
         f.write("    echo 'WARNING: FreeSurfer directory not found'\n")
         f.write("    export FREESURFER_HOME='/opt/freesurfer'\n")
-        f.write("fi\n")
-        f.write("\n")
+        f.write("fi\n\n")
+
         f.write("echo \"Using MRTRIX3_DIR: $MRTRIX3_DIR\"\n")
-        f.write("echo \"Using FREESURFER_HOME: $FREESURFER_HOME\"\n")
-        f.write("\n")
+        f.write("echo \"Using FREESURFER_HOME: $FREESURFER_HOME\"\n\n")
+
         f.write("# Verify critical files exist\n")
         f.write("echo 'Checking MRtrix3 label conversion files...'\n")
-        f.write("ls -la \"$MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_default.txt\" 2>/dev/null || echo 'ERROR: fs_default.txt not found'\n")
-        f.write("ls -la \"$MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_a2009s.txt\" 2>/dev/null || echo 'ERROR: fs_a2009s.txt not found'\n")
-        f.write("ls -la \"$FREESURFER_HOME/FreeSurferColorLUT.txt\" 2>/dev/null || echo 'WARNING: FreeSurferColorLUT.txt not found'\n")
-        f.write("\n")
+        f.write('ls -la "$MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_default.txt" 2>/dev/null || echo \'fs_default.txt not found\'\n')
+        f.write('ls -la "$MRTRIX3_DIR/share/mrtrix3/labelconvert/fs_a2009s.txt" 2>/dev/null || echo \'fs_a2009s.txt not found\'\n\n')
+
+        # Write commands
+        f.write("# Pipeline commands\n")
         for command in commands:
             f.write(command)
-            f.write("\n")
-            
+            f.write("\n\n")
+
+    os.chmod(output_file, 0o755)
     return output_file
 
-def load_global_config(file_path):
-    global config
-    with open(file_path, 'r') as f:
-        config = json.load(f)
 
-def detect_freesurfer_version(subject_folder):
+def add_mask_commands(
+    commands: List[str],
+    external_mask: str,
+    output_dir: str
+) -> List[str]:
     """
-    Detect available FreeSurfer versions and return the best one with warnings.
-    Priority: freesurfer8.0 > FreeSurfer7 > FreeSurfer (5.3)
+    Add commands to copy and convert an external mask.
+
+    Args:
+        commands: Existing command list
+        external_mask: Path to external mask file
+        output_dir: Output directory
+
+    Returns:
+        Updated command list with mask commands inserted
     """
-    fs_dirs = {
-        'freesurfer8.0': 'freesurfer8.0', # Version 8.0.0
-        'FreeSurfer7': 'FreeSurfer7', # Version 7.2
-        'FreeSurfer': 'FreeSurfer'  # Version 5.3
-    }
-    
-    available_versions = {}
-    
-    for version, dirname in fs_dirs.items():
-        if dirname == 'freesurfer8.0':
-            fs_path = os.path.join(subject_folder, dirname, os.path.basename(subject_folder))
-        else:
-            fs_path = os.path.join(subject_folder, dirname)
+    mask_commands = [
+        f"# Copy and convert external brain mask",
+        f"if [ ! -f {output_dir}/mask.nii.gz ]; then",
+        f"  cp {external_mask} {output_dir}/mask.nii.gz > {output_dir}/copy_external_mask_log.txt 2>&1",
+        f"fi",
+        f"if [ ! -f {output_dir}/mask.mif ]; then",
+        f"  mrconvert {output_dir}/mask.nii.gz {output_dir}/mask.mif -force > {output_dir}/convert_external_mask_log.txt 2>&1",
+        f"fi"
+    ]
 
-        if os.path.exists(fs_path):
-            # Check for key FreeSurfer files
-            aparc_aseg = os.path.join(fs_path, 'mri', 'aparc+aseg.mgz')
-            if os.path.exists(aparc_aseg):
-                available_versions[version] = fs_path
-    
-    if not available_versions:
-        return None, None, "No valid FreeSurfer reconstruction found"
-    
-    # Select best version with appropriate warnings
-    if 'freesurfer8.0' in available_versions:
-        return 'freesurfer8.0', available_versions['freesurfer8.0'], None
-    elif 'FreeSurfer7' in available_versions:
-        warning = "Using FreeSurfer 7 - consider upgrading to FreeSurfer 8.0 for optimal results"
-        return 'FreeSurfer7', available_versions['FreeSurfer7'], warning
-    else:
-        warning = "WARNING: Using FreeSurfer 5.3 - strongly recommend upgrading to FreeSurfer 7+ for better results"
-        return 'FreeSurfer', available_versions['FreeSurfer'], warning
+    # Find insertion point (after bias correction step)
+    insert_index = 0
+    for i, cmd in enumerate(commands):
+        if 'dwibiascorrect' in cmd:
+            insert_index = i + 1
+            break
 
-def find_freesurfer_files(fs_path, is_nhp=False):
-    """
-    Find required FreeSurfer files for connectome generation.
-    Returns paths to aparc+aseg.mgz and other needed files.
-    """
-    if is_nhp:
-        return None  # NHPs don't use FreeSurfer
-    
-    files = {
-        'aparc_aseg': os.path.join(fs_path, 'mri', 'aparc+aseg.mgz'),
-        'aparc_dk': os.path.join(fs_path, 'mri', 'aparc.DKTatlas+aseg.mgz'),
-        'aparc_destrieux': os.path.join(fs_path, 'mri', 'aparc.a2009s+aseg.mgz'),
-        'orig': os.path.join(fs_path, 'mri', 'orig.mgz'),
-        'brain': os.path.join(fs_path, 'mri', 'brain.mgz')
-    }
-    
-    # Check which files exist
-    available_files = {}
-    for key, path in files.items():
-        if os.path.exists(path):
-            available_files[key] = path
-    
-    return available_files
+    for i, mask_cmd in enumerate(mask_commands):
+        commands.insert(insert_index + i, mask_cmd)
 
-def select_parcellation_strategy(subject_folder, is_nhp=False):
-    """
-    Determine the best parcellation strategy based on available data.
-    Returns strategy info for both humans and NHPs.
-    """
-    if is_nhp:
-        return {
-            'strategy': 'template_only',
-            'atlases': ['Brainnetome'],
-            'freesurfer_available': False,
-            'warning': None
-        }
-    
-    # For humans, check FreeSurfer availability
-    fs_version, fs_path, fs_warning = detect_freesurfer_version(subject_folder)
-    
-    if fs_version:
-        fs_files = find_freesurfer_files(fs_path)
-        
-        # Determine available atlases
-        available_atlases = ['Brainnetome']  # Always available via template
-        
-        if 'aparc_aseg' in fs_files:
-            available_atlases.append('FreeSurfer_DK')
-        if 'aparc_destrieux' in fs_files:
-            available_atlases.append('FreeSurfer_Destrieux')
-        if 'aparc_dk' in fs_files:
-            available_atlases.append('FreeSurfer_DKT')
-            
-        return {
-            'strategy': 'freesurfer_plus_template',
-            'atlases': available_atlases,
-            'freesurfer_available': True,
-            'freesurfer_version': fs_version,
-            'freesurfer_path': fs_path,
-            'freesurfer_files': fs_files,
-            'warning': fs_warning
-        }
-    else:
-        return {
-            'strategy': 'template_only',
-            'atlases': ['Brainnetome'],
-            'freesurfer_available': False,
-            'warning': "No FreeSurfer data found - using template-based parcellation only"
-        }
-
-def create_enhanced_replacements(input_path, output_path, is_nhp=False):
-    """
-    Enhanced replacement dictionary that includes FreeSurfer paths when available.
-    """
-    # Get basic replacements (your existing logic)
-    large_mosaic, small_mosaic = find_largest_and_smallest_MOSAIC(input_path)
-    mosaic_json = read_mosaic_json(large_mosaic)
-    larger_prefix, smaller_prefix, lower_case_code = parse_dir_codes(large_mosaic, small_mosaic)
-    readouttime = mosaic_json['TotalReadoutTime']
-    repetitiontime = mosaic_json['RepetitionTime']
-    
-    matching_t1w_files = find_t1_image(input_path)
-    matching_flair_files = find_flair_image(input_path)
-    
-    # FLAIR is optional - not used in current pipeline
-    flair_file = matching_flair_files[0] if matching_flair_files else ""
-    
-    # Handle T1w masks (existing logic)
-    if is_nhp:
-        matching_t1_mask_file = matching_t1w_files[0].replace('.nii', '_pre_mask.nii.gz')
-    else:
-        matching_brainmask_images = find_t1_brainmask_image(input_path)
-        matching_t1_mask_file = matching_brainmask_images[0]
-
-    # Handle DWI masks (NEW: use pre-existing diffusion brain mask for HUMANS ONLY)
-    if not is_nhp:
-        # For humans: Look for pre-existing DWI brain mask
-        matching_dwi_brainmask_images = find_dwi_brainmask_image(input_path)
-        if matching_dwi_brainmask_images:
-            matching_dwi_mask_file = matching_dwi_brainmask_images[0]
-            print(f'Using pre-existing DWI brain mask for human processing: {matching_dwi_mask_file}')
-        else:
-            matching_dwi_mask_file = ''
-            print('WARNING: No pre-existing DWI brain mask found - will use dwi2mask as fallback')
-    else:
-        # For NHPs: Use existing T1w-based approach (no DWI mask)
-        matching_dwi_mask_file = ''
-        print('NHP processing: Using T1w-based mask approach (no pre-existing DWI mask needed)')
-
-    # Base replacements
-    replacements = {
-        "INPUT": input_path,
-        "OUTPUT": output_path,
-        "ANAT": matching_t1w_files[0],
-        "FLAIR": flair_file,  # Optional - not used in current pipeline
-        "TEMPLATE": '/templates',
-        "MASK": matching_t1_mask_file,  # T1w mask for anatomical processing
-        "DWI_MASK": matching_dwi_mask_file,  # NEW: DWI mask for diffusion processing
-        "PIXDIM4": str(repetitiontime),
-        "READOUTTIME": str(readouttime),
-        "PRIMARY": larger_prefix,
-        "SECONDARY": smaller_prefix,
-        "PE_DIR": lower_case_code
-    }
-    
-    # Add FreeSurfer-specific replacements for humans
-    if not is_nhp:
-        parcellation_info = select_parcellation_strategy(input_path, is_nhp)
-        
-        if parcellation_info['freesurfer_available']:
-            fs_files = parcellation_info['freesurfer_files']
-            replacements.update({
-                "FREESURFER_DIR": parcellation_info['freesurfer_path'],
-                "FS_APARC_ASEG": fs_files.get('aparc_aseg', ''),
-                "FS_APARC_DK": fs_files.get('aparc_dk', ''),
-                "FS_APARC_DESTRIEUX": fs_files.get('aparc_destrieux', ''),
-                "FS_BRAIN": fs_files.get('brain', ''),
-                "FS_VERSION": parcellation_info['freesurfer_version']
-            })
-        else:
-            # Provide empty values if FreeSurfer not available
-            replacements.update({
-                "FREESURFER_DIR": "",
-                "FS_APARC_ASEG": "",
-                "FS_APARC_DK": "",
-                "FS_APARC_DESTRIEUX": "",
-                "FS_BRAIN": "",
-                "FS_VERSION": "none"
-            })
-    
-    return replacements, parcellation_info if not is_nhp else None
-
-def load_commands_enhanced(file_path, input_path, output_path, is_nhp=False, rerun=False):
-    """
-    Enhanced version of load_commands that handles FreeSurfer integration and species-specific processing.
-    """
-    # Load JSON commands file
-    with open(file_path, 'r') as f:
-        data = json.load(f)
-
-    # Get enhanced replacements including FreeSurfer paths
-    replacements, parcellation_info = create_enhanced_replacements(input_path, output_path, is_nhp)
-    
-    # Add subject name placeholder (will be filled in main)
-    replacements['SUBJECT_NAME'] = 'PLACEHOLDER_SUBJECT'
-    replacements['SPECIES'] = 'nhp' if is_nhp else 'human'
-    
-    commands = []
-    skipped_steps = []
-    
-    # Check if we have a pre-existing DWI mask (only for humans)
-    has_existing_dwi_mask = not is_nhp and bool(replacements.get('DWI_MASK'))
-    
-    # Log FreeSurfer information for humans
-    if not is_nhp and parcellation_info:
-        if parcellation_info['warning']:
-            print(f"WARNING: {parcellation_info['warning']}")
-        
-        print(f"FreeSurfer Strategy: {parcellation_info['strategy']}")
-        print(f"Available Atlases: {', '.join(parcellation_info['atlases'])}")
-        
-        if parcellation_info['freesurfer_available']:
-            print(f"FreeSurfer Version: {parcellation_info['freesurfer_version']}")
-            print(f"FreeSurfer Path: {parcellation_info['freesurfer_path']}")
-
-    # Log DWI mask strategy
-    if is_nhp:
-        print("DWI Mask Strategy (NHP): Using T1w-based approach")
-    elif has_existing_dwi_mask:
-        print(f"DWI Mask Strategy (Human): Using pre-existing mask from {replacements['DWI_MASK']}")
-    else:
-        print("DWI Mask Strategy (Human): Will use dwi2mask as fallback")
-
-    for step in data['steps']:
-        step_name = step['name']
-        
-        # Check if step should be run for this species
-        if 'species' in step:
-            if step['species'] == 'human' and is_nhp:
-                skipped_steps.append(f"{step_name} (NHP - human only)")
-                continue
-            elif step['species'] == 'nhp' and not is_nhp:
-                skipped_steps.append(f"{step_name} (Human - NHP only)")
-                continue
-        
-        # Check if step requires specific FreeSurfer files (for humans)
-        if not is_nhp and 'requires' in step:
-            required_file = step['requires']
-            if required_file not in replacements or not replacements[required_file]:
-                skipped_steps.append(f"{step_name} (Missing: {required_file})")
-                continue
-        
-        # Special handling for dwi2mask step when we have pre-existing mask (humans only)
-        if step_name == 'step10-dwi2mask' and has_existing_dwi_mask:
-            skipped_steps.append(f"{step_name} (Using pre-existing DWI mask for human)")
-            continue
-        
-        print(f"- Including step: {step_name}")
-        
-        # Build validation output path
-        validation_output = step['validation_output']
-        for placeholder, value in replacements.items():
-            validation_output = validation_output.replace(placeholder, value)
-        
-        # Build command
-        command = step['cmd']
-        for placeholder, value in replacements.items():
-            command = command.replace(placeholder, value)
-        
-        # Define output logs
-        log_file = os.path.join(output_path, f"{step_name}_log.txt")
-        command_with_logging = f"{command} > {log_file} 2>&1"
-        
-        if rerun:
-            commands.append(command_with_logging)
-        else:
-            commands.append(f'if [ ! -f {validation_output} ]; then\n  {command_with_logging}\nfi')
-    
-    # If we have a pre-existing DWI mask, add command to copy and convert it
-    if has_existing_dwi_mask:
-        # Insert the mask copying commands after step 9 (dwibiascorrect) and before step 11 (dwi2response)
-        dwi_mask_commands = [
-            f"# Copy and convert pre-existing DWI brain mask",
-            f"if [ ! -f {output_path}/mask.nii.gz ]; then",
-            f"  cp {replacements['DWI_MASK']} {output_path}/mask.nii.gz > {output_path}/step10-copy_dwi_mask_log.txt 2>&1",
-            f"fi",
-            f"if [ ! -f {output_path}/mask.mif ]; then",
-            f"  mrconvert {output_path}/mask.nii.gz {output_path}/mask.mif -force > {output_path}/step10-convert_dwi_mask_log.txt 2>&1",
-            f"fi"
-        ]
-        
-        # Find the index where we should insert these commands (after step 9)
-        insert_index = 0
-        for i, cmd in enumerate(commands):
-            if 'step9-dwibiascorrect' in cmd:
-                insert_index = i + 1
-                break
-        
-        # Insert the mask commands
-        for i, mask_cmd in enumerate(dwi_mask_commands):
-            commands.insert(insert_index + i, mask_cmd)
-    
-    # Log skipped steps
-    if skipped_steps:
-        print(f"\nSkipped Steps:")
-        for skipped in skipped_steps:
-            print(f"  - {skipped}")
-    
     return commands
 
-def main_enhanced():
-    """Enhanced main function with FreeSurfer integration and improved logging."""
-    parser = argparse.ArgumentParser(description='Generate SLURM batch files for given subject.')
-    parser.add_argument('subject_name', type=str, help='Name of the subject')
-    parser.add_argument('subject_folder', type=str, help='Path to the subject folder')
-    parser.add_argument('config_file', type=str, help='Path to the config json file')
-    parser.add_argument('command_file', type=str, help='Path to the command json file')
-    parser.add_argument('-o','--output', type=str, 
-                        help='Path to the output folder', 
-                        default="output",
-                        required=False)
-    parser.add_argument('-r','--rerun', type=bool, 
-                        help='Force rerun of all steps', 
-                        default=False,
-                        required=False)
-    parser.add_argument('--force-rebuild-inputs', action='store_true',
-                        help='Force rebuild of mrtrix3_inputs directory even if it exists')
-    
-    # Mutually exclusive group for species selection
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument('--nhp', dest='nhp', action='store_true', 
-                       help='Use non-human primate model')
-    group.add_argument('--human', dest='human', action='store_true', 
-                       help='Use human model (default)')
-    
-    args = parser.parse_args()
 
-    # Set default to human if neither is selected
-    if not (args.nhp or args.human):
-        args.human = True
+def add_reporting_command(
+    commands: List[str],
+    subject: str,
+    output_dir: str,
+    is_nhp: bool,
+    fs_version: str
+) -> List[str]:
+    """Add the final reporting command to the pipeline."""
+    species_flag = 'nhp' if is_nhp else 'human'
 
-    if args.nhp == True:
-        args.human = False
-    
-    if args.human == True:
-        args.nhp = False
-
-    # Additional logic to ensure no conflicting state
-    if args.nhp and args.human:
-        print("ERROR: Both --nhp and --human flags cannot be set simultaneously.")
-        return
-
-    print(f"Subject: {args.subject_name}")
-    print(f"Species Selected: {'Non-Human Primate' if args.nhp else 'Human'}")
-    
-    # Check if DTI directory exists
-    dti_directory = os.path.join(args.subject_folder, "DTI")
-    if not os.path.exists(dti_directory):
-        print("ERROR: DTI directory is not present")
-        exit(1)
-        
-    # Create output directories   
-    output_path = os.path.join(args.subject_folder, "DTI", "mrtrix3_outputs")
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
-
-    # Load config options into global var space        
-    load_global_config(args.config_file)
-    
-    # Ensure scripts directory exists and is accessible
-    scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts')
-    if not os.path.exists(scripts_dir):
-        print(f"ERROR: Scripts directory not found at {scripts_dir}")
-        print("Creating scripts directory...")
-        os.makedirs(scripts_dir, exist_ok=True)
-    
-    # Check if generate_standardized_report.py exists
-    report_script = os.path.join(scripts_dir, 'generate_standardized_report.py')
-    if not os.path.exists(report_script):
-        print(f"WARNING: generate_standardized_report.py not found at {report_script}")
-        print("The reporting step may fail. Please ensure the script is in the scripts/ directory.")
-    
-    # NEW: Check for existing mrtrix3_inputs directory
-    print("\n=== CHECKING MRTRIX3_INPUTS DIRECTORY ===")
-    inputs_exist, inputs_valid, inputs_message = check_mrtrix3_inputs_exists(args.subject_folder)
-    print(inputs_message)
-    
-    skip_inputs_build = False
-    if inputs_exist and inputs_valid and not args.force_rebuild_inputs:
-        print("✓ Valid mrtrix3_inputs directory found. Skipping dcm2niix and sorting procedures.")
-        skip_inputs_build = True
-    elif inputs_exist and not inputs_valid:
-        print("⚠ mrtrix3_inputs directory exists but is invalid. Will rebuild.")
-        skip_inputs_build = False
-    elif args.force_rebuild_inputs:
-        print("🔄 Force rebuild requested. Will rebuild mrtrix3_inputs directory.")
-        skip_inputs_build = False
-    else:
-        print("📁 mrtrix3_inputs directory not found. Will build from scratch.")
-        skip_inputs_build = False
-    
-    # Build the mrtrix3 input files (conditionally)
-    print("\n=== BUILDING MRTRIX3 INPUTS ===")
-    if skip_inputs_build:
-        print("Skipping ImageTypeChecker processing - using existing mrtrix3_inputs")
-    else:
-        print("Running ImageTypeChecker to build mrtrix3_inputs")
-        checker = ImageTypeChecker(args.subject_folder, args.config_file)
-    
-    # Check for pre-existing DWI brain mask (humans only)
-    print("\n=== DWI BRAIN MASK ANALYSIS ===")
-    if not args.nhp:
-        dwi_mask_files = find_dwi_brainmask_image(args.subject_folder)
-        if dwi_mask_files:
-            print(f"Found pre-existing DWI brain mask for human processing: {dwi_mask_files[0]}")
-            print("Pipeline will use this mask instead of generating one with dwi2mask")
-        else:
-            print("No pre-existing DWI brain mask found for human processing. Pipeline will use dwi2mask as fallback.")
-    else:
-        print("NHP processing: Using T1w-based mask approach (no pre-existing DWI mask search needed)")
-        dwi_mask_files = []
-    
-    # For humans, analyze FreeSurfer availability
-    if not args.nhp:
-        print("\n=== FREESURFER ANALYSIS ===")
-        parcellation_info = select_parcellation_strategy(args.subject_folder, args.nhp)
-        if parcellation_info['warning']:
-            print(f"WARNING: {parcellation_info['warning']}")
-
-    # Build the skull-stripping command
-    input_t1 = find_t1_image(args.subject_folder)
-    skull_strip_cmd = create_skullstrip_command(input_t1[0], args.nhp)
-        
-    # Load commands and convert to a list
-    print("\n=== BUILDING COMMAND LIST ===")
-    commands = load_commands_enhanced(args.command_file, args.subject_folder, output_path, args.nhp, args.rerun)
-    
-    # Replace PLACEHOLDER_SUBJECT with actual subject name
-    commands = [cmd.replace('PLACEHOLDER_SUBJECT', args.subject_name) for cmd in commands]
-    
-    # Add final reporting command
-    species_flag = 'nhp' if args.nhp else 'human'
-    fs_version = 'none'
-    
-    if not args.nhp:
-        parcellation_info = select_parcellation_strategy(args.subject_folder, args.nhp)
-        if parcellation_info['freesurfer_available']:
-            fs_version = parcellation_info['freesurfer_version']
-    
     reporting_cmd = f"""
 # Generate standardized report
 python3 /scripts/generate_standardized_report.py \\
-    --subject {args.subject_name} \\
-    --output_dir {output_path} \\
+    --subject {subject} \\
+    --output_dir {output_dir} \\
     --species {species_flag} \\
     --freesurfer_version {fs_version} \\
-    > {output_path}/reporting_log.txt 2>&1
+    > {output_dir}/reporting_log.txt 2>&1
 """
     commands.append(reporting_cmd)
-    
-    # Create a bash shell script
-    print("\n=== CREATING BATCH SCRIPT ===")
-    batch_script = create_bash_script(commands, os.path.join(output_path, f"{args.subject_name}_script.sh"))
-    
-    # Create SLURM batch file
-    slurm_creator = SLURMFileCreator(args.subject_name, config)
-    slurm_creator.create_bind_string(args.subject_folder)
-    slurm_creator.create_batch_file(batch_script, args.nhp, skull_strip_cmd)
-    
-    print(f"\n=== PIPELINE PREPARATION COMPLETE ===")
-    print(f"Subject: {args.subject_name}")
-    print(f"Species: {'NHP' if args.nhp else 'Human'}")
-    print(f"Output Directory: {output_path}")
-    print(f"Total Commands: {len(commands)}")
-    print(f"Scripts Directory: {scripts_dir}")
-    print(f"mrtrix3_inputs: {'Reused existing' if skip_inputs_build else 'Built from scratch'}")
-    
-    if not args.nhp and dwi_mask_files:
-        print(f"DWI Mask (Human): Using pre-existing mask from {dwi_mask_files[0]}")
-    elif not args.nhp:
-        print("DWI Mask (Human): Will generate using dwi2mask")
-    else:
-        print("DWI Mask (NHP): Using T1w-based approach")
-    
-    if not args.nhp:
-        print(f"FreeSurfer Version: {fs_version}")
-    
-    print(f"Batch Script: {batch_script}")
-    print(f"Ready for SLURM submission!")
+    return commands
 
-# You can also create a wrapper function to maintain backward compatibility
+
+def create_skull_strip_command(t1w_path: str, is_nhp: bool) -> Optional[str]:
+    """Create skull stripping command for NHP processing."""
+    if not is_nhp:
+        return None
+
+    model_path = "/UNet_Model/models/Site-All-T-epoch_36.model"
+    output_dir = os.path.dirname(t1w_path)
+    return f"python3 /UNet_Model/muSkullStrip.py -in {t1w_path} -model {model_path} -out {output_dir}"
+
+
 def main():
-    """Wrapper to maintain backward compatibility."""
-    main_enhanced()
+    """Main entry point for the BIDS DWI pipeline."""
+    parser = argparse.ArgumentParser(
+        description='MRtrix3 DWI Pipeline for BIDS-formatted data',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic usage
+  python run_pipeline.py --bids-dir /data/bids --subject sub-01 --human
+
+  # With session and custom output
+  python run_pipeline.py --bids-dir /data/bids --subject sub-01 --session ses-01 \\
+      --output-dir /data/derivatives/mrtrix3/sub-01/ses-01
+
+  # Dry run to see what would be executed
+  python run_pipeline.py --bids-dir /data/bids --subject sub-01 --dry-run
+
+  # With external brain mask
+  python run_pipeline.py --bids-dir /data/bids --subject sub-01 --mask /path/to/mask.nii.gz
+"""
+    )
+
+    # Required arguments
+    parser.add_argument('--bids-dir', type=str, required=True,
+                        help='Path to BIDS root directory')
+    parser.add_argument('--subject', type=str, required=True,
+                        help='Subject ID (e.g., sub-01)')
+
+    # Optional arguments
+    parser.add_argument('--session', type=str, default=None,
+                        help='Session ID (e.g., ses-01)')
+    parser.add_argument('--config', type=str, default='config.json',
+                        help='Path to config JSON file (default: config.json)')
+    parser.add_argument('--command-file', type=str, default='enhanced_commands_bids.json',
+                        help='Path to command JSON file (default: enhanced_commands_bids.json)')
+    parser.add_argument('--output-dir', type=str, default=None,
+                        help='Output directory (default: derivatives/mrtrix3/sub-XX/)')
+    parser.add_argument('--mask', type=str, default=None,
+                        help='Path to external brain mask (skips dwi2mask step)')
+
+    # Species selection
+    species_group = parser.add_mutually_exclusive_group()
+    species_group.add_argument('--human', dest='human', action='store_true',
+                               help='Process as human data (default)')
+    species_group.add_argument('--nhp', dest='nhp', action='store_true',
+                               help='Process as non-human primate data')
+
+    # Processing options
+    parser.add_argument('--rerun', action='store_true',
+                        help='Force rerun of all steps (ignore existing outputs)')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='Generate scripts without submitting to SLURM')
+
+    args = parser.parse_args()
+
+    # Default to human if neither specified
+    if not args.nhp and not args.human:
+        args.human = True
+    is_nhp = args.nhp
+
+    print("=" * 60)
+    print("MRtrix3 DWI Pipeline - BIDS Processing")
+    print("=" * 60)
+    print(f"Subject: {args.subject}")
+    print(f"Species: {'Non-Human Primate' if is_nhp else 'Human'}")
+    print(f"BIDS Directory: {args.bids_dir}")
+    if args.session:
+        print(f"Session: {args.session}")
+
+    # Validate BIDS directory exists
+    if not os.path.exists(args.bids_dir):
+        print(f"ERROR: BIDS directory not found: {args.bids_dir}")
+        sys.exit(1)
+
+    # Load configuration
+    print("\n=== LOADING CONFIGURATION ===")
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    config_path = args.config
+    if not os.path.isabs(config_path):
+        config_path = os.path.join(script_dir, config_path)
+
+    if not os.path.exists(config_path):
+        print(f"ERROR: Config file not found: {config_path}")
+        sys.exit(1)
+
+    config = load_config(config_path)
+    print(f"Loaded config from: {config_path}")
+
+    command_file = args.command_file
+    if not os.path.isabs(command_file):
+        command_file = os.path.join(script_dir, command_file)
+
+    if not os.path.exists(command_file):
+        print(f"ERROR: Command file not found: {command_file}")
+        sys.exit(1)
+
+    command_data = load_commands(command_file)
+    print(f"Loaded commands from: {command_file}")
+
+    # Discover BIDS files
+    print("\n=== BIDS FILE DISCOVERY ===")
+    layout = create_bids_layout(
+        bids_dir=args.bids_dir,
+        subject=args.subject,
+        session=args.session,
+        output_dir=args.output_dir
+    )
+
+    # Validate layout
+    is_valid, errors = layout.validate()
+    if not is_valid:
+        print("ERROR: BIDS validation failed:")
+        for error in errors:
+            print(f"  - {error}")
+        sys.exit(1)
+
+    print_layout_summary(layout)
+
+    # Create output directory
+    if not os.path.exists(layout.output_dir):
+        os.makedirs(layout.output_dir)
+        print(f"\nCreated output directory: {layout.output_dir}")
+
+    # Validate external mask if provided
+    has_external_mask = False
+    if args.mask:
+        if not os.path.exists(args.mask):
+            print(f"ERROR: External mask not found: {args.mask}")
+            sys.exit(1)
+        has_external_mask = True
+        print(f"\nUsing external brain mask: {args.mask}")
+
+    # Create replacements
+    print("\n=== BUILDING REPLACEMENTS ===")
+    replacements = create_replacements(layout, config, is_nhp, args.mask)
+
+    # Filter steps
+    print("\n=== FILTERING PIPELINE STEPS ===")
+    filtered_steps, skipped_reasons = filter_steps(
+        steps=command_data['steps'],
+        layout=layout,
+        replacements=replacements,
+        is_nhp=is_nhp,
+        has_external_mask=has_external_mask
+    )
+
+    print(f"Included steps: {len(filtered_steps)}")
+    for step in filtered_steps:
+        print(f"  + {step['name']}")
+
+    if skipped_reasons:
+        print(f"\nSkipped steps: {len(skipped_reasons)}")
+        for reason in skipped_reasons:
+            print(f"  - {reason}")
+
+    # Build commands
+    print("\n=== BUILDING COMMANDS ===")
+    commands = build_commands(
+        steps=filtered_steps,
+        replacements=replacements,
+        output_dir=layout.output_dir,
+        rerun=args.rerun
+    )
+
+    # Add external mask handling
+    if has_external_mask:
+        commands = add_mask_commands(commands, args.mask, layout.output_dir)
+
+    # Add reporting command
+    fs_version = layout.freesurfer_version or 'none'
+    commands = add_reporting_command(
+        commands=commands,
+        subject=args.subject,
+        output_dir=layout.output_dir,
+        is_nhp=is_nhp,
+        fs_version=fs_version
+    )
+
+    print(f"Total commands: {len(commands)}")
+
+    # Create bash script
+    print("\n=== CREATING BATCH SCRIPT ===")
+    script_name = f"{args.subject}_pipeline.sh"
+    if args.session:
+        script_name = f"{args.subject}_{args.session}_pipeline.sh"
+
+    batch_script = create_bash_script(
+        commands=commands,
+        output_file=os.path.join(layout.output_dir, script_name)
+    )
+    print(f"Created script: {batch_script}")
+
+    # Create SLURM batch file
+    slurm_creator = SLURMFileCreator(args.subject, config)
+    slurm_creator.create_bind_string(args.bids_dir, layout.output_dir)
+
+    skull_strip_cmd = create_skull_strip_command(layout.t1w, is_nhp)
+    slurm_creator.create_batch_file(batch_script, is_nhp, skull_strip_cmd or '')
+
+    # Summary
+    print("\n" + "=" * 60)
+    print("PIPELINE PREPARATION COMPLETE")
+    print("=" * 60)
+    print(f"Subject: {args.subject}")
+    print(f"Species: {'NHP' if is_nhp else 'Human'}")
+    print(f"Shell configuration: {layout.shell_config}")
+    print(f"Distortion correction: {layout.distortion_correction}")
+    print(f"FreeSurfer: {fs_version}")
+    print(f"Output directory: {layout.output_dir}")
+    print(f"Batch script: {batch_script}")
+
+    if args.dry_run:
+        print("\n[DRY RUN] Scripts generated but not submitted to SLURM")
+    else:
+        print("\nReady for SLURM submission!")
+        print(f"Submit with: sbatch jobs/{args.subject}.slurm")
+
 
 if __name__ == "__main__":
     main()

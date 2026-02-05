@@ -32,5 +32,4 @@ slurm-*
 *analysis*/
 
 CLAUDE.md
-
-.claude/*
+.claude/

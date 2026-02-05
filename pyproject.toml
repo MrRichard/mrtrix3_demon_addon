@@ -27,4 +27,4 @@ dependencies = [
 Repository = "https://github.com/MrRichard/mrtrix3_demon_addon"
 
 [tool.setuptools]
-py-modules = ["Connectome", "ImageTypeChecker", "SlurmBatch", "run_pipeline", "run_pipeline_legacy"]
+py-modules = ["Connectome", "SlurmBatch", "run_pipeline", "bids_discovery"]

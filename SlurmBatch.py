@@ -1,7 +1,7 @@
 import os
 
 class SLURMFileCreator:
-    
+
     def __init__(self, subjectname, config):
         self.config = config
         self.bind_string = ''
@@ -9,11 +9,32 @@ class SLURMFileCreator:
         self.templatedir = os.path.abspath(self.config['templates'])
         # Get the directory where the script is running from
         self.scripts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts')
-    
-    def create_bind_string(self, input_directory):
+
+    def create_bind_string(self, input_directory, output_directory=None):
+        """
+        Create Singularity bind string for container mounts.
+
+        Args:
+            input_directory: BIDS directory or subject folder to bind
+            output_directory: Optional separate output directory (for BIDS derivatives)
+        """
         input_directory = os.path.abspath(input_directory)
-        # Add scripts directory binding
-        self.bind_string = f"-B {input_directory}/:{input_directory} -B {self.templatedir}:/templates/ -B {self.scripts_dir}:/scripts"
+
+        # Build bind string with input directory
+        binds = [
+            f"-B {input_directory}/:{input_directory}",
+            f"-B {self.templatedir}:/templates/",
+            f"-B {self.scripts_dir}:/scripts"
+        ]
+
+        # Add separate output directory if different from input
+        if output_directory:
+            output_directory = os.path.abspath(output_directory)
+            # Only add if it's not already under the input directory
+            if not output_directory.startswith(input_directory):
+                binds.append(f"-B {output_directory}/:{output_directory}")
+
+        self.bind_string = " ".join(binds)
 
     def create_batch_file(self, shell_script, is_nhp, skull_strip=''):
         # Create jobs directory if it doesn't exist
