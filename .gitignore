@@ -32,4 +32,8 @@ slurm-*
 *analysis*/
 
 CLAUDE.md
+GEMINI.md
 .claude/
+
+planning_docs/
+.pytest_cache/
