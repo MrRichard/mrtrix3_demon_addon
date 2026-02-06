@@ -45,9 +45,8 @@ class MRConvertInputSpec(CommandLineInputSpec):
     )
     # Data type options
     datatype = traits.Str(
-        "float32", # Default to float32 for most MRtrix3 operations
         argstr="-datatype %s",
-        desc="Specify output image data type (e.g., float32, float64, int16)."
+        desc="Specify output image data type (e.g., float32, float64, int32). Only added when explicitly set."
     )
 
 

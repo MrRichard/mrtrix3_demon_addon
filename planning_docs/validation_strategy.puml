@@ -1,0 +1,126 @@
+@startuml Validation Strategy
+title DWI Pipeline - Input Validation Flow
+
+participant "CLI" as CLI
+participant "BidsValidator" as BidsVal
+participant "FreeSurferValidator" as FSVal
+participant "DwiValidator" as DwiVal
+
+CLI -> BidsVal: validate_inputs(subject, session)
+activate BidsVal
+
+BidsVal -> BidsVal: Check BIDS structure
+alt BIDS structure invalid
+    BidsVal --> CLI: FAIL: Invalid BIDS structure
+    note right
+        Exit with clear error:
+        - Missing sub-XX directory
+        - Missing dwi/ or anat/
+        - Invalid naming convention
+    end note
+end
+
+BidsVal -> BidsVal: Find DWI files
+alt No DWI files found
+    BidsVal --> CLI: FAIL: No DWI data
+    note right
+        Exit with error:
+        - No *_dwi.nii.gz found
+        - Missing .bval/.bvec files
+    end note
+end
+
+BidsVal -> BidsVal: Find anatomical (T1w)
+alt No T1w found
+    BidsVal --> CLI: FAIL: No anatomical
+end
+
+BidsVal -> FSVal: validate_freesurfer(subject, session)
+activate FSVal
+
+FSVal -> FSVal: Check FreeSurfer directory
+alt FreeSurfer directory missing
+    FSVal --> CLI: FAIL: FreeSurfer required
+    note right
+        ERROR MESSAGE:
+        "FreeSurfer recon required but not found.
+        Expected: /freesurfer/sub-XX[/ses-YY]
+        
+        Please run FreeSurfer recon-all first:
+        recon-all -subject sub-XX -i T1.nii.gz -all
+        
+        Or provide FreeSurfer derivatives directory."
+    end note
+end
+
+FSVal -> FSVal: Check required files
+note right
+    Required files:
+    - mri/aparc+aseg.mgz
+    - mri/brain.mgz
+    - mri/aparc.a2009s+aseg.mgz (optional but recommended)
+end note
+
+alt Missing aparc+aseg.mgz
+    FSVal --> CLI: FAIL: Incomplete recon
+    note right
+        ERROR:
+        "FreeSurfer recon incomplete.
+        Missing: mri/aparc+aseg.mgz
+        
+        Recon may have failed or not finished.
+        Check FreeSurfer logs and re-run if needed."
+    end note
+end
+
+FSVal --> BidsVal: FreeSurfer validated ✓
+deactivate FSVal
+
+BidsVal -> DwiVal: validate_dwi_metadata(dwi_json)
+activate DwiVal
+
+DwiVal -> DwiVal: Check required metadata
+note right
+    Required in DWI JSON sidecar:
+    - PhaseEncodingDirection OR InPlanePhaseEncodingDirection
+    - TotalReadoutTime OR (EffectiveEchoSpacing + ReconMatrixPE)
+    
+    Optional but recommended:
+    - RepetitionTime
+    - EchoTime
+end note
+
+alt Missing critical metadata
+    DwiVal --> CLI: FAIL: Incomplete metadata
+    note right
+        ERROR:
+        "DWI metadata incomplete.
+        Missing PhaseEncodingDirection in:
+        sub-XX_ses-YY_dwi.json
+        
+        Required for distortion correction."
+    end note
+end
+
+DwiVal --> BidsVal: DWI metadata validated ✓
+deactivate DwiVal
+
+BidsVal --> CLI: All validations passed ✓
+deactivate BidsVal
+
+CLI -> CLI: Proceed with pipeline
+
+note right of CLI
+    **Validation Philosophy:**
+    
+    FAIL FAST - Don't waste time processing
+    if prerequisites aren't met.
+    
+    CLEAR ERRORS - Tell user exactly what's
+    wrong and how to fix it.
+    
+    STRICT REQUIREMENTS - FreeSurfer recon
+    is mandatory, no exceptions.
+end note
+
+@enduml

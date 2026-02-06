@@ -1,0 +1,158 @@
+@startuml Strategy Pattern Detail
+skinparam componentStyle rectangle
+
+title Processing Strategy Pattern - Single-Shell vs Multi-Shell
+
+package "Abstract Strategy" {
+    abstract class ProcessingStrategy {
+        # config: ProcessingConfig
+        # layout: BidsLayout
+        --
+        {abstract} +create_preprocessing_workflow() : Node[]
+        {abstract} +create_response_workflow() : Node[]
+        {abstract} +create_fod_workflow() : Node[]
+        {abstract} +get_fod_cutoff() : float
+        {abstract} +should_apply_degibbs() : bool
+        {abstract} +get_workflow_name() : str
+    }
+}
+
+package "Concrete Strategies" {
+    class SingleShellStrategy {
+        +create_preprocessing_workflow() : Node[]
+        +create_response_workflow() : Node[]
+        +create_fod_workflow() : Node[]
+        +get_fod_cutoff() : float
+        +should_apply_degibbs() : bool
+        +get_workflow_name() : str
+        --
+        Uses tournier response
+        Uses CSD (not MSMT-CSD)
+        Applies mrdegibbs
+        Cutoff: 0.1
+    }
+    
+    class MultiShellStrategy {
+        +create_preprocessing_workflow() : Node[]
+        +create_response_workflow() : Node[]
+        +create_fod_workflow() : Node[]
+        +get_fod_cutoff() : float
+        +should_apply_degibbs() : bool
+        +get_workflow_name() : str
+        --
+        Uses dhollander response
+        Uses MSMT-CSD
+        Skips mrdegibbs
+        Cutoff: 0.06
+    }
+}
+
+ProcessingStrategy <|-- SingleShellStrategy
+ProcessingStrategy <|-- MultiShellStrategy
+
+package "Strategy Usage" {
+    class WorkflowBuilder {
+        - strategy: ProcessingStrategy
+        - workflow: pe.Workflow
+        --
+        +set_strategy(strategy: ProcessingStrategy)
+        +build_preprocessing()
+        +build_response_estimation()
+        +build_fod_estimation()
+        +build() : pe.Workflow
+    }
+    
+    class StrategyFactory {
+        +create_strategy(layout: BidsLayout) : ProcessingStrategy
+        --
+        Examines bval file
+        Counts unique shells
+        Returns appropriate strategy
+    }
+}
+
+WorkflowBuilder o--> ProcessingStrategy : uses
+StrategyFactory ..> ProcessingStrategy : creates
+
+package "Example: Preprocessing Differences" {
+    card "Single-Shell Preprocessing" as SS_PREPROC {
+        |Step|Node|
+        |1|mrconvert (DWI → MIF)|
+        |2|dwidenoise|
+        |3|**mrdegibbs** ⚠|
+        |4|dwifslpreproc|
+        |5|dwibiascorrect|
+        |6|dwi2mask|
+    }
+    
+    card "Multi-Shell Preprocessing" as MS_PREPROC {
+        |Step|Node|
+        |1|mrconvert (DWI → MIF)|
+        |2|dwidenoise|
+        |3|~~mrdegibbs~~ (skipped)|
+        |4|dwifslpreproc|
+        |5|dwibiascorrect|
+        |6|dwi2mask|
+    }
+}
+
+SingleShellStrategy ..> SS_PREPROC : produces
+MultiShellStrategy ..> MS_PREPROC : produces
+
+package "Example: FOD Estimation Differences" {
+    card "Single-Shell FOD" as SS_FOD {
+        dwi2response tournier
+        →
+        dwi2fod csd
+        (WM only)
+        →
+        mtnormalise
+        (single tissue)
+    }
+    
+    card "Multi-Shell FOD" as MS_FOD {
+        dwi2response dhollander
+        →
+        dwi2fod msmt_csd
+        (WM + GM + CSF)
+        →
+        mtnormalise
+        (multi-tissue)
+    }
+}
+
+SingleShellStrategy ..> SS_FOD : produces
+MultiShellStrategy ..> MS_FOD : produces
+
+note right of StrategyFactory
+**Strategy Selection Algorithm:**
+
+1. Load bval file
+2. Round bvals to nearest 50
+3. Count unique non-zero shells
+4. If shells = 1:
+   - Check max bval
+   - If ≤1200: DTI strategy
+   - Else: HARDI strategy
+5. If shells ≥ 2:
+   - Multi-shell strategy
+6. Return strategy instance
+end note
+
+note left of WorkflowBuilder
+**Benefits of Strategy Pattern:**
+
+✓ New strategies easy to add
+  (e.g., NODDI, DKI processing)
+
+✓ Algorithm selection separated
+  from workflow construction
+
+✓ Testing: Mock strategies for
+  unit tests
+
+✓ Each strategy encapsulates
+  its own complex logic
+end note
+
+@enduml

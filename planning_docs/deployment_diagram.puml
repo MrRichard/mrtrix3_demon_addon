@@ -1,0 +1,129 @@
+@startuml Container Deployment
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Deployment.puml
+
+title MRtrix3 DWI Pipeline - Container Deployment
+
+Deployment_Node(host, "Host System", "Linux/macOS/Windows") {
+    Deployment_Node(docker, "Docker/Singularity Runtime") {
+        Container(container, "dwi-pipeline:latest", "Docker Container") {
+            Component(app, "Python Application", "/app/dwi_pipeline")
+            Component(mrtrix, "MRtrix3", "/opt/mrtrix3")
+            Component(fsl, "FSL", "/opt/fsl")
+            Component(ants, "ANTs", "/opt/ants")
+            Component(freesurfer_runtime, "FreeSurfer Runtime", "/opt/freesurfer")
+        }
+    }
+    
+    Deployment_Node(storage, "Host Storage") {
+        Container(bids_data, "BIDS Dataset", "/path/to/bids-data")
+        Container(fs_derivatives, "FreeSurfer Derivatives", "/path/to/freesurfer")
+        Container(output_dir, "Output Derivatives", "/path/to/output")
+    }
+}
+
+Rel(app, mrtrix, "Calls")
+Rel(app, fsl, "Calls")
+Rel(app, ants, "Calls")
+Rel(app, freesurfer_runtime, "Reads parcellations")
+
+Rel(container, bids_data, "Read-only mount", "/data")
+Rel(container, fs_derivatives, "Read-only mount", "/freesurfer")
+Rel(container, output_dir, "Read-write mount", "/out")
+
+note right of container
+**Container Image Structure:**
+
+**Base Image:** Ubuntu 22.04
+
+**Installed Software:**
+- MRtrix3 (latest)
+- FSL 6.0+
+- ANTs 2.4+
+- FreeSurfer runtime libs
+- Python 3.10+
+- Nipype 1.8+
+
+**Entry Point:**
+python -m dwi_pipeline
+
+**Container Size:** ~5-6 GB
+end note
+
+note left of storage
+**Volume Mounts:**
+
+1. BIDS data (read-only)
+   Expected: Standard BIDS structure
+   
+2. FreeSurfer (read-only)
+   Expected: sub-XX/mri/*.mgz files
+   
+3. Output (read-write)
+   Writes: BIDS derivatives format
+end note
+
+@enduml
+
+@startuml Usage Examples
+title Container Usage Examples
+
+actor Researcher
+
+== Basic Single Subject ==
+Researcher -> Docker: docker run --rm \\
+note right
+  docker run --rm \
+    -v /data/bids:/data:ro \
+    -v /data/freesurfer:/freesurfer:ro \
+    -v /data/derivatives/dwi:/out \
+    dwi-pipeline:latest \
+    sub-01 ses-01
+end note
+
+== Batch Processing with SLURM ==
+Researcher -> SLURM: sbatch process_subjects.sh
+note right
+  #!/bin/bash
+  #SBATCH --array=1-100
+  #SBATCH --cpus-per-task=8
+  #SBATCH --mem=32G
+  
+  subjects=(sub-01 sub-02 ... sub-100)
+  subject=${subjects[$SLURM_ARRAY_TASK_ID]}
+  
+  singularity run \
+    -B /data/bids:/data:ro \
+    -B /data/freesurfer:/freesurfer:ro \
+    -B /data/derivatives:/out \
+    dwi-pipeline.sif \
+    $subject ses-01
+end note
+
+== Custom Configuration ==
+Researcher -> Docker: docker run --rm \\
+note right
+  docker run --rm \
+    -v /data/bids:/data:ro \
+    -v /data/freesurfer:/freesurfer:ro \
+    -v /data/derivatives/dwi:/out \
+    -v $(pwd)/custom_config.json:/config.json:ro \
+    dwi-pipeline:latest \
+    sub-01 ses-01 \
+    --config /config.json \
+    --n-threads 16 \
+    --rerun
+end note
+
+== NHP Processing ==
+Researcher -> Docker: docker run --rm \\
+note right
+  docker run --rm \
+    -v /data/nhp-bids:/data:ro \
+    -v /data/derivatives/dwi:/out \
+    dwi-pipeline:latest \
+    sub-NHP01 ses-01 \
+    --species nhp \
+    --no-freesurfer
+end note
+
+@enduml

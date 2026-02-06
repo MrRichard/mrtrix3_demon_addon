@@ -1,0 +1,191 @@
+@startuml Multi-Dimensional Strategy Pattern
+title Strategy Pattern - Shell Type × Species Support
+
+package "Abstract Strategies" {
+    abstract class ProcessingStrategy {
+        # config: ProcessingConfig
+        # layout: BidsLayout
+        --
+        {abstract} +create_preprocessing_nodes() : List[Node]
+        {abstract} +create_response_nodes() : List[Node]
+        {abstract} +create_fod_nodes() : List[Node]
+        {abstract} +create_tractography_nodes() : List[Node]
+        {abstract} +get_fod_cutoff() : float
+        {abstract} +should_apply_degibbs() : bool
+    }
+    
+    note right of ProcessingStrategy
+        Base strategy defines the interface
+        All concrete strategies must implement
+        these methods
+    end note
+}
+
+package "Human Strategies" {
+    class HumanSingleShellStrategy {
+        +create_preprocessing_nodes()
+        +create_response_nodes()
+        +create_fod_nodes()
+        +create_tractography_nodes()
+        +get_fod_cutoff() : float = 0.1
+        +should_apply_degibbs() : bool = True
+        --
+        **Specific behaviors:**
+        - Uses tournier response
+        - Uses CSD (not MSMT)
+        - Applies mrdegibbs
+        - Higher FOD cutoff (0.1)
+        - Uses FreeSurfer parcellations
+        - Standard ACT with 5ttgen fsl
+    }
+    
+    class HumanMultiShellStrategy {
+        +create_preprocessing_nodes()
+        +create_response_nodes()
+        +create_fod_nodes()
+        +create_tractography_nodes()
+        +get_fod_cutoff() : float = 0.06
+        +should_apply_degibbs() : bool = False
+        --
+        **Specific behaviors:**
+        - Uses dhollander response
+        - Uses MSMT-CSD
+        - Skips mrdegibbs
+        - Lower FOD cutoff (0.06)
+        - Uses FreeSurfer parcellations
+        - Multi-tissue ACT
+    }
+}
+
+package "NHP Strategies (Future)" {
+    class NhpSingleShellStrategy {
+        +create_preprocessing_nodes()
+        +create_response_nodes()
+        +create_fod_nodes()
+        +create_tractography_nodes()
+        +get_fod_cutoff() : float = 0.1
+        +should_apply_degibbs() : bool = True
+        --
+        **Specific behaviors:**
+        - Uses tournier response
+        - Uses CSD
+        - Applies mrdegibbs
+        - Uses NHP template registration
+        - **NO FreeSurfer** (NHP-specific atlases)
+        - May use DeepBET for skull stripping
+    }
+    
+    class NhpMultiShellStrategy {
+        +create_preprocessing_nodes()
+        +create_response_nodes()
+        +create_fod_nodes()
+        +create_tractography_nodes()
+        +get_fod_cutoff() : float = 0.06
+        +should_apply_degibbs() : bool = False
+        --
+        **Specific behaviors:**
+        - Uses dhollander response
+        - Uses MSMT-CSD
+        - Skips mrdegibbs
+        - Uses NHP template registration
+        - **NO FreeSurfer**
+        - NHP-specific processing
+    }
+}
+
+ProcessingStrategy <|-- HumanSingleShellStrategy
+ProcessingStrategy <|-- HumanMultiShellStrategy
+ProcessingStrategy <|-- NhpSingleShellStrategy
+ProcessingStrategy <|-- NhpMultiShellStrategy
+
+package "Strategy Factory" {
+    class StrategyFactory {
+        +create_strategy(layout: BidsLayout, species: Species) : ProcessingStrategy
+        --
+        **Selection Logic:**
+        1. Detect shell configuration from bvals
+        2. Check species parameter
+        3. Return appropriate strategy
+    }
+    
+    class StrategyRegistry {
+        - strategies: Dict[Tuple[Species, ShellType], Type[ProcessingStrategy]]
+        --
+        +register(species, shell_type, strategy_class)
+        +get_strategy(species, shell_type) : ProcessingStrategy
+    }
+}
+
+StrategyFactory --> StrategyRegistry : uses
+StrategyFactory ..> ProcessingStrategy : creates
+
+note right of StrategyFactory
+    **Strategy Selection Algorithm:**
+    
+    ```python
+    def create_strategy(layout, species):
+        shell_type = detect_shell_type(layout.dwi_ap_bval)
+        
+        if species == Species.HUMAN:
+            if shell_type == ShellType.SINGLE_SHELL:
+                return HumanSingleShellStrategy(layout)
+            else:
+                return HumanMultiShellStrategy(layout)
+        
+        elif species == Species.NHP:
+            if shell_type == ShellType.SINGLE_SHELL:
+                return NhpSingleShellStrategy(layout)
+            else:
+                return NhpMultiShellStrategy(layout)
+    ```
+end note
+
+note left of StrategyRegistry
+    **Registry Pattern for Extensibility:**
+    
+    Adding new strategies is easy:
+    
+    ```python
+    registry = StrategyRegistry()
+    
+    # Register existing strategies
+    registry.register(
+        Species.HUMAN, 
+        ShellType.SINGLE_SHELL,
+        HumanSingleShellStrategy
+    )
+    
+    # Future: Add new species
+    registry.register(
+        Species.RODENT,
+        ShellType.SINGLE_SHELL,
+        RodentSingleShellStrategy
+    )
+    
+    # Future: Add new processing type
+    registry.register(
+        Species.HUMAN,
+        ShellType.DKI,  # Diffusion Kurtosis
+        HumanDkiStrategy
+    )
+    ```
+end note
+
+package "Key Differences by Strategy" {
+    card "Human vs NHP Differences" as DIFF {
+        |**Aspect**|**Human**|**NHP**|
+        |Brain extraction|dwi2mask or FSL bet|DeepBET (NHP model)|
+        |5TT generation|5ttgen fsl|5ttgen fsl (with caution)|
+        |Parcellations|FreeSurfer required|NHP templates|
+        |Atlases|DK, Destrieux, Brainnetome|NHP-specific atlases|
+        |Template|MNI152|Macaque template (e.g., D99)|
+        |Validation|Requires FreeSurfer|No FreeSurfer|
+    }
+}
+
+HumanSingleShellStrategy ..> DIFF
+HumanMultiShellStrategy ..> DIFF
+NhpSingleShellStrategy ..> DIFF
+NhpMultiShellStrategy ..> DIFF
+
+@enduml

@@ -1,24 +1,24 @@
-# Use the official MRtrix3 container as the base image.
-# This provides MRtrix3 and core neuroimaging tools.
 FROM mrtrix3/mrtrix3:latest
 
-# Install Python 3 and pip.
-# Use non-interactive mode and clean up apt cache to keep the image lean.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    python3 \
-    python3-pip \
- && rm -rf /var/lib/apt/lists/*
+# Build Python 3.12 from source (bookworm only ships 3.11)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential libssl-dev zlib1g-dev libbz2-dev \
+        libreadline-dev libsqlite3-dev libncursesw5-dev \
+        libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev \
+        wget ca-certificates \
+    && wget https://www.python.org/ftp/python/3.12.8/Python-3.12.8.tgz \
+    && tar xzf Python-3.12.8.tgz \
+    && cd Python-3.12.8 \
+    && ./configure --enable-optimizations --prefix=/usr/local \
+    && make -j"$(nproc)" \
+    && make altinstall \
+    && cd / && rm -rf /Python-3.12.8 /Python-3.12.8.tgz \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory inside the container to /app.
+RUN python3.12 -m pip install --upgrade pip
+
 WORKDIR /app
-
-# Copy the requirements file and install dependencies.
-COPY requirements.txt ./
-RUN pip3 install --no-cache-dir -r requirements.txt
-
-# Copy the application source code.
+COPY * /app
 COPY dwi_pipeline/ ./dwi_pipeline/
-
-# Set the container's entry point to run the pipeline module.
-ENTRYPOINT ["python3", "-m", "dwi_pipeline"]
+RUN python3.12 -m pip install --no-cache-dir .
+ENTRYPOINT ["python3.12", "-m", "dwi_pipeline"]

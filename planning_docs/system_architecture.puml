@@ -1,0 +1,42 @@
+@startuml System Architecture
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title MRtrix3 DWI Pipeline - System Architecture
+
+Person(user, "Researcher", "Neuroimaging researcher")
+System_Boundary(container, "Docker/Singularity Container") {
+    Container(cli, "CLI Entry Point", "Python", "Validates inputs, orchestrates workflow execution")
+    Container(workflow_engine, "Nipype Workflow Engine", "Python/Nipype", "Manages workflow graph and execution")
+    Container(mrtrix, "MRtrix3 Tools", "C++", "DWI processing, tractography, connectome generation")
+    Container(fsl, "FSL Tools", "C++/Shell", "Preprocessing, distortion correction")
+    Container(ants, "ANTs Tools", "C++", "Registration to templates")
+}
+
+System_Ext(bids_data, "BIDS Dataset", "Raw neuroimaging data")
+System_Ext(freesurfer, "FreeSurfer Derivatives", "Anatomical parcellations")
+System_Ext(output, "BIDS Derivatives", "Processed connectomes and QC")
+
+Rel(user, cli, "Executes", "docker run")
+Rel(cli, workflow_engine, "Builds and executes", "Python API")
+Rel(workflow_engine, mrtrix, "Calls", "subprocess")
+Rel(workflow_engine, fsl, "Calls", "subprocess")
+Rel(workflow_engine, ants, "Calls", "subprocess")
+
+Rel(cli, bids_data, "Reads", "read-only mount")
+Rel(cli, freesurfer, "Reads", "read-only mount")
+Rel(workflow_engine, output, "Writes", "read-write mount")
+
+note right of container
+  All processing occurs within
+  the container. No external
+  dependencies except data mounts.
+end note
+
+note left of bids_data
+  Expected: BIDS-compliant DWI data
+  - sub-XX/ses-YY/dwi/
+  - sub-XX/ses-YY/anat/
+  - sub-XX/ses-YY/fmap/ (optional)
+end note
+
+@enduml

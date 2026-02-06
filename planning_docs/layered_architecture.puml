@@ -1,0 +1,78 @@
+@startuml Layered Architecture
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title MRtrix3 DWI Pipeline - Layered Architecture
+
+Container_Boundary(presentation, "Presentation Layer") {
+    Component(cli, "Command Line Interface", "Python/Click", "Parses arguments, validates inputs")
+    Component(config_loader, "Configuration Loader", "Python", "Loads and validates config")
+}
+
+Container_Boundary(application, "Application Layer") {
+    Component(workflow_builder, "Workflow Builder", "Python", "Constructs Nipype workflows using Builder pattern")
+    Component(workflow_factory, "Workflow Factory", "Python", "Creates appropriate workflow based on data characteristics")
+    Component(strategy_manager, "Processing Strategy Manager", "Python", "Manages single-shell vs multi-shell strategies")
+    Component(executor, "Pipeline Executor", "Python", "Orchestrates workflow execution")
+}
+
+Container_Boundary(domain, "Domain Layer") {
+    Component(bids_layout, "BIDS Layout", "Python", "Domain model for BIDS structure")
+    Component(dwi_data, "DWI Data", "Python", "DWI-specific data and metadata")
+    Component(processing_config, "Processing Config", "Python", "Processing parameters value object")
+    Component(connectome, "Connectome Data", "Python", "Output connectivity matrices")
+    Component(validation, "Validation Rules", "Python", "Business rules for data validation")
+}
+
+Container_Boundary(infrastructure, "Infrastructure Layer") {
+    Component(bids_reader, "BIDS Reader", "Python/PyBIDS", "Reads BIDS datasets")
+    Component(freesurfer_interface, "FreeSurfer Interface", "Python/Nipype", "Interfaces with FreeSurfer data")
+    Component(mrtrix_interfaces, "MRtrix3 Interfaces", "Python/Nipype", "Wrappers for MRtrix3 commands")
+    Component(fsl_interfaces, "FSL Interfaces", "Python/Nipype", "Wrappers for FSL commands")
+    Component(ants_interfaces, "ANTs Interfaces", "Python/Nipype", "Wrappers for ANTs commands")
+    Component(report_generator, "Report Generator", "Python", "Generates QC HTML reports")
+}
+
+' Relationships
+Rel(cli, workflow_factory, "Requests workflow")
+Rel(cli, config_loader, "Loads config")
+Rel(config_loader, processing_config, "Creates")
+
+Rel(workflow_factory, strategy_manager, "Determines strategy")
+Rel(workflow_factory, workflow_builder, "Uses")
+Rel(strategy_manager, processing_config, "Based on")
+
+Rel(workflow_builder, mrtrix_interfaces, "Builds workflow with")
+Rel(workflow_builder, fsl_interfaces, "Builds workflow with")
+Rel(workflow_builder, ants_interfaces, "Builds workflow with")
+
+Rel(executor, workflow_builder, "Executes workflow from")
+Rel(executor, report_generator, "Generates reports")
+
+Rel(bids_reader, bids_layout, "Populates")
+Rel(freesurfer_interface, bids_layout, "Augments")
+Rel(validation, dwi_data, "Validates")
+Rel(validation, bids_layout, "Validates")
+
+Rel(workflow_builder, dwi_data, "Uses")
+Rel(workflow_builder, bids_layout, "Uses")
+Rel(workflow_builder, processing_config, "Configured by")
+
+note right of domain
+  Pure business logic
+  No external dependencies
+  Framework-agnostic
+end note
+
+note right of application
+  Orchestration logic
+  Uses domain models
+  Depends on abstractions
+end note
+
+note right of infrastructure
+  External tools and frameworks
+  Implements interfaces
+  Can be swapped/mocked
+end note
+
+@enduml

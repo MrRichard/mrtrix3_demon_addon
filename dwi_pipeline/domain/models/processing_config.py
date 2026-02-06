@@ -45,10 +45,10 @@ class ProcessingConfig:
     @property
     def subject_output_dir(self) -> Path:
         """
-        Returns the BIDS-compliant output directory for the current subject/session
-        within the base output_dir.
+        Returns the output directory for the current subject/session
+        within the base output_dir, using sub-{subject}_ses-{session} format.
         """
-        path = self.output_dir / f"sub-{self.subject}"
         if self.session:
-            path /= f"ses-{self.session}"
-        return path
+            return self.output_dir / f"sub-{self.subject}_ses-{self.session}"
+        else:
+            return self.output_dir / f"sub-{self.subject}"

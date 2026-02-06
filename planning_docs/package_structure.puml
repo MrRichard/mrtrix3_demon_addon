@@ -1,0 +1,157 @@
+@startuml Package Structure
+!define ICONURL https://raw.githubusercontent.com/tupadr3/plantuml-icon-font-sprites/v2.4.0
+!include ICONURL/common.puml
+!include ICONURL/font-awesome-5/python.puml
+
+title MRtrix3 DWI Pipeline - Module Structure
+
+package "dwi_pipeline" {
+    
+    package "__main__.py" {
+        component [Entry Point\nCLI Orchestration] as main
+    }
+    
+    package "cli" {
+        component [ArgumentParser\nInput Validation] as argparse
+        component [ConfigLoader\nConfig File Handler] as config_loader
+    }
+    
+    package "domain" {
+        package "models" {
+            component [BidsLayout\nDWI Data\nProcessingConfig] as domain_models
+        }
+        
+        package "enums" {
+            component [ShellType\nDistortionStrategy\nSpecies] as enums
+        }
+        
+        package "validation" {
+            component [BidsValidator\nConfigValidator\nFileValidator] as validators
+        }
+        
+        package "exceptions" {
+            component [ValidationError\nWorkflowError] as exceptions
+        }
+    }
+    
+    package "application" {
+        package "strategies" {
+            component [ProcessingStrategy\nSingleShellStrategy\nMultiShellStrategy] as strategies
+        }
+        
+        package "factories" {
+            component [WorkflowFactory\nStrategyFactory] as factories
+        }
+        
+        package "builders" {
+            component [WorkflowBuilder\nWorkflowDirector] as builders
+        }
+        
+        package "executors" {
+            component [PipelineExecutor\nWorkflowRunner] as executors
+        }
+    }
+    
+    package "infrastructure" {
+        package "bids" {
+            component [BidsReader\nBidsDiscovery\nMetadataExtractor] as bids_infra
+        }
+        
+        package "freesurfer" {
+            component [FreeSurferInterface\nParcellationManager] as fs_infra
+        }
+        
+        package "interfaces" {
+            package "mrtrix" {
+                component [MRConvert\nDwiDenoise\nDwiFslPreproc\nDwi2Response\nDwi2Fod\nTckGen\nTck2Connectome] as mrtrix_nodes
+            }
+            
+            package "fsl" {
+                component [Flirt\nBet2\nFslPrepareFieldmap] as fsl_nodes
+            }
+            
+            package "ants" {
+                component [AntsRegistration\nAntsApplyTransforms] as ants_nodes
+            }
+        }
+        
+        package "reporting" {
+            component [QCReportGenerator\nHTMLRenderer\nMetricsCalculator] as reporting
+        }
+    }
+    
+    package "utils" {
+        component [PathUtils\nLogging\nConstants] as utils
+    }
+}
+
+' Dependencies between packages
+main --> argparse
+main --> config_loader
+main --> executors
+main --> reporting
+
+argparse --> domain_models
+argparse --> validators
+config_loader --> domain_models
+
+executors --> factories
+executors --> builders
+executors --> reporting
+
+factories --> strategies
+factories --> domain_models
+builders --> strategies
+builders --> domain_models
+builders --> mrtrix_nodes
+builders --> fsl_nodes
+builders --> ants_nodes
+
+strategies --> mrtrix_nodes
+strategies --> fsl_nodes
+
+validators --> domain_models
+validators --> bids_infra
+
+bids_infra --> domain_models
+fs_infra --> domain_models
+
+mrtrix_nodes --> utils
+fsl_nodes --> utils
+ants_nodes --> utils
+reporting --> utils
+
+note right of domain
+  No external dependencies
+  Pure Python
+  Framework-agnostic
+end note
+
+note right of application
+  Depends only on domain
+  and interface abstractions
+end note
+
+note right of infrastructure
+  External tool wrappers
+  Nipype interfaces
+  Can be replaced/mocked
+end note
+
+note as N1
+**Key Design Principles:**
+
+1. **Dependency Inversion**: Application layer
+   depends on abstractions, not concrete implementations
+
+2. **Single Responsibility**: Each module has
+   one clear purpose
+
+3. **Open/Closed**: Easy to extend (new atlases,
+   new processing steps) without modifying existing code
+
+4. **Testability**: Pure domain logic can be tested
+   without running actual MRtrix3 commands
+end note
+
+@enduml

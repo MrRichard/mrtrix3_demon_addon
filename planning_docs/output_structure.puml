@@ -1,0 +1,184 @@
+@startuml Output Structure
+title BIDS Derivatives Output Organization
+
+folder "BIDS Root" as bids_root {
+    folder "sub-01/" {
+        folder "ses-01/" {
+            folder "dwi/" {
+                file "sub-01_ses-01_dir-AP_dwi.nii.gz"
+                file "sub-01_ses-01_dir-AP_dwi.bval"
+                file "sub-01_ses-01_dir-AP_dwi.bvec"
+                file "sub-01_ses-01_dir-AP_dwi.json"
+            }
+            folder "anat/" {
+                file "sub-01_ses-01_T1w.nii.gz"
+            }
+        }
+    }
+    
+    folder "derivatives/" {
+        folder "freesurfer/" {
+            folder "sub-01/" {
+                folder "mri/" {
+                    file "aparc+aseg.mgz" #lightgreen
+                    file "aparc.a2009s+aseg.mgz" #lightgreen
+                    file "brain.mgz" #lightgreen
+                    note right: REQUIRED INPUT\n(from previous step)
+                }
+            }
+        }
+        
+        folder "dwi-pipeline/" {
+            file "dataset_description.json" #gold
+            note right
+                BIDS derivatives metadata:
+                {
+                  "Name": "MRtrix3 DWI Pipeline",
+                  "BIDSVersion": "1.8.0",
+                  "PipelineDescription": {
+                    "Name": "MRtrix3 DWI Connectome",
+                    "Version": "1.0.0",
+                    "CodeURL": "..."
+                  },
+                  "GeneratedBy": [{
+                    "Name": "dwi-pipeline",
+                    "Version": "1.0.0",
+                    "Container": {
+                      "Type": "docker",
+                      "Tag": "dwi-pipeline:1.0.0"
+                    }
+                  }]
+                }
+            end note
+            
+            folder "sub-01/" {
+                folder "ses-01/" {
+                    folder "dwi/" {
+                        ' Preprocessing outputs
+                        file "sub-01_ses-01_space-dwi_desc-preproc_dwi.nii.gz" #lightblue
+                        file "sub-01_ses-01_space-dwi_desc-brain_mask.nii.gz" #lightblue
+                        file "sub-01_ses-01_space-dwi_desc-bias_dwi.nii.gz" #lightblue
+                        
+                        ' FOD outputs
+                        file "sub-01_ses-01_space-dwi_model-csd_fod.mif" #yellow
+                        file "sub-01_ses-01_space-dwi_desc-wmfod_dwi.mif" #yellow
+                        
+                        ' Anatomical registration
+                        file "sub-01_ses-01_from-T1w_to-dwi_mode-image_xfm.txt" #pink
+                        file "sub-01_ses-01_space-dwi_desc-5tt_dseg.mif" #pink
+                        
+                        ' Tractography
+                        file "sub-01_ses-01_space-dwi_desc-10M_tractography.tck" #orange
+                        file "sub-01_ses-01_space-dwi_desc-sift1M_tractography.tck" #orange
+                        
+                        ' Atlases in native space
+                        file "sub-01_ses-01_space-dwi_atlas-Brainnetome_dseg.nii.gz" #cyan
+                        file "sub-01_ses-01_space-dwi_atlas-FreeSurferDK_dseg.nii.gz" #cyan
+                        file "sub-01_ses-01_space-dwi_atlas-Destrieux_dseg.nii.gz" #cyan
+                        
+                        ' Connectomes (PRIMARY OUTPUTS)
+                        file "sub-01_ses-01_atlas-Brainnetome_desc-count_connectome.csv" #lightgreen
+                        file "sub-01_ses-01_atlas-Brainnetome_desc-scaled_connectome.csv" #lightgreen
+                        file "sub-01_ses-01_atlas-FreeSurferDK_desc-count_connectome.csv" #lightgreen
+                        file "sub-01_ses-01_atlas-FreeSurferDK_desc-scaled_connectome.csv" #lightgreen
+                        file "sub-01_ses-01_atlas-Destrieux_desc-count_connectome.csv" #lightgreen
+                        file "sub-01_ses-01_atlas-Destrieux_desc-scaled_connectome.csv" #lightgreen
+                        
+                        ' Summary metrics
+                        file "sub-01_ses-01_metrics.json" #gold
+                        note right
+                            Summary metrics:
+                            {
+                              "subject": "sub-01",
+                              "session": "ses-01",
+                              "shell_type": "single_shell",
+                              "n_shells": 1,
+                              "bvalues": [0, 1000],
+                              "n_directions": 64,
+                              "preprocessing": {
+                                "denoising": "completed",
+                                "degibbs": "completed",
+                                "distortion_correction": "rpe_pair",
+                                "bias_correction": "ants_n4"
+                              },
+                              "tractography": {
+                                "n_streamlines_initial": 10000000,
+                                "n_streamlines_sift": 1000000,
+                                "sift_ratio": 0.1
+                              },
+                              "connectomes": {
+                                "Brainnetome": {
+                                  "n_nodes": 246,
+                                  "n_edges": 30135,
+                                  "density": 0.253
+                                },
+                                "FreeSurferDK": {
+                                  "n_nodes": 84,
+                                  "n_edges": 3486,
+                                  "density": 0.412
+                                }
+                              }
+                            }
+                        end note
+                        
+                        ' QC report
+                        file "sub-01_ses-01_qc-report.html" #gold
+                        folder "figures/" {
+                            file "sub-01_ses-01_desc-b0overlay_qc.png"
+                            file "sub-01_ses-01_desc-5ttoverlay_qc.png"
+                            file "sub-01_ses-01_desc-tractography_qc.png"
+                            file "sub-01_ses-01_atlas-Brainnetome_qc.png"
+                        }
+                        
+                        ' Provenance
+                        file "sub-01_ses-01_provenance.json" #gold
+                        note right
+                            Nipype provenance:
+                            - Full command history
+                            - Software versions
+                            - Input checksums
+                            - Execution time
+                            - Node dependencies
+                        end note
+                    }
+                }
+            }
+        }
+    }
+}
+
+note right of bids_root
+    **Output Philosophy:**
+    
+    1. **BIDS Compliant**: Follow derivatives spec
+    2. **Self-Documenting**: Clear naming conventions
+    3. **Complete**: Raw outputs + summaries
+    4. **Traceable**: Full provenance tracking
+    
+    **File Naming Convention:**
+    sub-<label>_ses-<label>_[space-<label>]_
+    [atlas-<label>]_[desc-<label>]_<suffix>
+    
+    **Key Suffixes:**
+    - dwi: Diffusion-weighted image
+    - mask: Binary mask
+    - fod: Fiber orientation distribution
+    - tractography: Streamlines
+    - connectome: Connectivity matrix
+    - dseg: Discrete segmentation
+    - xfm: Transform file
+end note
+
+legend right
+    **Color Legend:**
+    |<#lightgreen>| Required inputs (FreeSurfer) |
+    |<#lightblue>| Preprocessing outputs |
+    |<#yellow>| FOD/response outputs |
+    |<#pink>| Registration outputs |
+    |<#orange>| Tractography outputs |
+    |<#cyan>| Atlases in native space |
+    |<#lightgreen>| **Connectome outputs (PRIMARY)** |
+    |<#gold>| Metadata/QC/Provenance |
+endlegend
+
+@enduml

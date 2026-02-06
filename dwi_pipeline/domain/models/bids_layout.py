@@ -44,6 +44,10 @@ class BidsLayout:
     magnitude1_nifti: Optional[Path] = field(default=None, metadata={"help": "Path to the magnitude1 NIfTI file (optional)."})
     magnitude2_nifti: Optional[Path] = field(default=None, metadata={"help": "Path to the magnitude2 NIfTI file (optional)."})
 
+    # FreeSurfer parcellation files (discovered by BidsReader)
+    fs_brain: Optional[Path] = field(default=None, metadata={"help": "Path to FreeSurfer brain.mgz."})
+    fs_aparc_aseg: Optional[Path] = field(default=None, metadata={"help": "Path to FreeSurfer aparc+aseg.mgz (DK atlas)."})
+    fs_aparc_destrieux: Optional[Path] = field(default=None, metadata={"help": "Path to FreeSurfer aparc.a2009s+aseg.mgz (Destrieux atlas)."})
 
     # Derived properties (set during discovery/validation)
     shell_config: ShellType = field(init=False)

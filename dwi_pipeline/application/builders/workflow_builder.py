@@ -4,17 +4,21 @@ import logging
 
 from nipype.pipeline.engine import Workflow, Node
 from nipype.interfaces import utility as niu
+from nipype.interfaces.io import DataSink
 
 from ...domain.models import ProcessingConfig, BidsLayout, DwiData
 from ...domain.enums import DistortionStrategy
 from ...application.strategies import ProcessingStrategy, SingleShellStrategy, MultiShellStrategy
-from ...infrastructure.interfaces import mrtrix as mrtrix_interfaces, fsl as fsl_interfaces
 from ...infrastructure.interfaces.mrtrix import (
     MRConvert, DWIDenoise, MRDeGibbs, DWIFslPreproc, DWIBiasCorrect, DWI2Mask,
-    DWIExtract, TT5Gen, TT5ToGMWMI, TCKGen, TckSift2, TCK2Connectome
+    DWIExtract, TT5Gen, TT5ToGMWMI, TCKGen, TckSift2, TCK2Connectome,
+    MtNormalise, LabelConvert
 )
+from ...infrastructure.interfaces.fsl import Bet, Flirt
+from ...utils.constants import find_mrtrix_lut_dir, FS_COLOR_LUT, FS_DEFAULT_LUT, FS_A2009S_LUT
 
 logger = logging.getLogger(__name__)
+
 
 class WorkflowBuilder:
     """
@@ -35,7 +39,7 @@ class WorkflowBuilder:
         self.workflow: Workflow | None = None
         self.nodes: Dict[str, Node] = {}
         self._reset()
-        
+
     def _reset(self) -> None:
         """Resets the builder, creating a new empty workflow."""
         self.workflow = Workflow(
@@ -72,7 +76,7 @@ class WorkflowBuilder:
                 ('in_json', 'json_sidecar')
             ])
         ])
-        
+
         denoise = Node(DWIDenoise(
             force=True,
             nthreads=self.config.n_threads
@@ -90,7 +94,7 @@ class WorkflowBuilder:
             prev_node = degibbs
         else:
             logger.info("Skipping Gibbs ringing removal.")
-            
+
         preproc = self._create_distortion_correction_node()
         self.workflow.connect([(prev_node, preproc, [('out_file', 'in_file')])])
 
@@ -106,14 +110,17 @@ class WorkflowBuilder:
             nthreads=self.config.n_threads
         ), name='mask')
         self.workflow.connect([(biascorrect, mask, [('out_file', 'in_file')])])
-        
+
+        self.nodes['biascorrect'] = biascorrect
+        self.nodes['mask'] = mask
+
         logger.info("Preprocessing nodes added.")
         return self
 
     def _create_distortion_correction_node(self) -> Node:
         """Creates the appropriate distortion correction node."""
         strategy = self.layout.distortion_correction
-        
+
         preproc = Node(DWIFslPreproc(
             pe_dir=self.dwi_data.pe_direction,
             readout_time=self.dwi_data.total_readout_time,
@@ -130,14 +137,14 @@ class WorkflowBuilder:
         else: # NONE
             logger.warning("No distortion correction method specified. Using eddy only.")
             preproc.inputs.rpe_option = "none"
-            
+
         return preproc
 
     def add_response_estimation(self) -> WorkflowBuilder:
         """Adds response function estimation nodes."""
         logger.info("Adding response function estimation nodes...")
         response_nodes = self.strategy.create_response_nodes()
-        
+
         for node in response_nodes:
             node.inputs.force = True
             node.inputs.nthreads = self.config.n_threads
@@ -147,7 +154,7 @@ class WorkflowBuilder:
                 (self.nodes['mask'], node, [('out_file', 'mask')])
             ])
             self.nodes[node.name] = node
-            
+
         logger.info("Response estimation nodes added.")
         return self
 
@@ -155,7 +162,7 @@ class WorkflowBuilder:
         """Adds FOD estimation nodes."""
         logger.info("Adding FOD estimation nodes...")
         fod_nodes = self.strategy.create_fod_nodes()
-        
+
         fod_node = fod_nodes[0]
         fod_node.inputs.force = True
         fod_node.inputs.nthreads = self.config.n_threads
@@ -165,7 +172,7 @@ class WorkflowBuilder:
             (self.nodes['biascorrect'], fod_node, [('out_file', 'in_file')]),
             (self.nodes['mask'], fod_node, [('out_file', 'mask')])
         ])
-        
+
         if isinstance(self.strategy, SingleShellStrategy):
             response_node = self.nodes.get("dwi2response_tournier")
             if response_node:
@@ -183,32 +190,78 @@ class WorkflowBuilder:
         logger.info("FOD estimation nodes added.")
         return self
 
+    def add_normalisation(self) -> WorkflowBuilder:
+        """Adds FOD intensity normalisation (mtnormalise) between FOD and tractography."""
+        logger.info("Adding mtnormalise node...")
+
+        mtnorm = Node(MtNormalise(
+            force=True,
+            nthreads=self.config.n_threads
+        ), name='mtnormalise')
+
+        if isinstance(self.strategy, SingleShellStrategy):
+            fod_node = self.nodes['dwi2fod_csd']
+            self.workflow.connect([
+                (fod_node, mtnorm, [('out_file', 'in_wm')]),
+                (self.nodes['mask'], mtnorm, [('out_file', 'mask')])
+            ])
+        elif isinstance(self.strategy, MultiShellStrategy):
+            fod_node = self.nodes['dwi2fod_msmt']
+            self.workflow.connect([
+                (fod_node, mtnorm, [('wm_odf', 'in_wm')]),
+                (fod_node, mtnorm, [('gm_odf', 'in_gm')]),
+                (fod_node, mtnorm, [('csf_odf', 'in_csf')]),
+                (self.nodes['mask'], mtnorm, [('out_file', 'mask')])
+            ])
+
+        self.nodes['mtnormalise'] = mtnorm
+        logger.info("mtnormalise node added.")
+        return self
+
     def add_tractography(self) -> WorkflowBuilder:
-        """Adds tractography and connectome generation nodes."""
+        """Adds tractography, parcellation, and connectome generation nodes."""
         logger.info("Adding tractography and connectome generation nodes...")
-        
+
+        # --- Anatomical registration: FS brain.mgz → DWI space ---
+        # Convert FreeSurfer brain.mgz to NIfTI
+        fs_brain_convert = Node(MRConvert(
+            in_file=str(self.layout.fs_brain),
+            out_file="brain.nii.gz",
+            force=True,
+            nthreads=self.config.n_threads
+        ), name='fs_brain_convert')
+        self.workflow.add_nodes([fs_brain_convert])
+
+        # Extract b0 from preprocessed DWI
         extract_b0 = Node(DWIExtract(bzero=True, out_file="b0.mif"), name="extract_b0")
         self.workflow.connect([(self.nodes['biascorrect'], extract_b0, [('out_file', 'in_file')])])
 
-        bet_t1w = Node(fsl_interfaces.Bet(mask=True, robust=True), name="bet_t1w")
-        self.workflow.connect([(self.nodes['inputspec'], bet_t1w, [('t1w_file', 'in_file')])])
-        
-        flirt = Node(fsl_interfaces.Flirt(dof=6, cost="mutualinfo"), name="flirt_t1_to_dwi")
+        # Register FS brain → DWI space (brain.mgz is already skull-stripped)
+        flirt_brain = Node(Flirt(
+            dof=6,
+            cost="mutualinfo",
+            out_file="brain_in_dwi.nii.gz",
+            out_matrix_file="brain_to_dwi.mat"
+        ), name="flirt_brain_to_dwi")
         self.workflow.connect([
-            (bet_t1w, flirt, [('out_file', 'in_file')]),
-            (extract_b0, flirt, [('out_file', 'reference')])
+            (fs_brain_convert, flirt_brain, [('out_file', 'in_file')]),
+            (extract_b0, flirt_brain, [('out_file', 'reference')])
         ])
+        self.nodes['flirt_brain_to_dwi'] = flirt_brain
 
+        # 5ttgen on registered brain (already skull-stripped → -premasked)
         tt5gen = Node(TT5Gen(
             algorithm='fsl',
+            premasked=True,
             force=True,
             nthreads=self.config.n_threads
         ), name='5ttgen')
-        self.workflow.connect([(flirt, tt5gen, [('out_file', 'in_file')])])
+        self.workflow.connect([(flirt_brain, tt5gen, [('out_file', 'in_file')])])
 
         tt5_to_gmwmi = Node(TT5ToGMWMI(force=True), name='5tt2gmwmi')
         self.workflow.connect([(tt5gen, tt5_to_gmwmi, [('out_file', 'in_file')])])
 
+        # --- Tractography using normalised FOD ---
         tckgen = Node(TCKGen(
             algorithm='iFOD2',
             select=10000000,
@@ -218,16 +271,15 @@ class WorkflowBuilder:
             nthreads=self.config.n_threads,
             cutoff=self.strategy.get_fod_cutoff()
         ), name='tckgen')
-        
-        fod_node_name = "dwi2fod_csd" if isinstance(self.strategy, SingleShellStrategy) else "dwi2fod_msmt"
-        fod_output_name = "out_file" if isinstance(self.strategy, SingleShellStrategy) else "wm_odf"
-        
+
+        # Use mtnormalise output for tractography
         self.workflow.connect([
-            (self.nodes[fod_node_name], tckgen, [(fod_output_name, 'in_file')]),
+            (self.nodes['mtnormalise'], tckgen, [('out_wm', 'in_file')]),
             (tt5gen, tckgen, [('out_file', 'act')]),
             (tt5_to_gmwmi, tckgen, [('out_file', 'seed_gmwmi')])
         ])
 
+        # SIFT2 filtering — also uses normalised FOD
         tcksift2 = Node(TckSift2(
             term_number=1000000,
             force=True,
@@ -235,25 +287,129 @@ class WorkflowBuilder:
         ), name='tcksift2')
         self.workflow.connect([
             (tckgen, tcksift2, [('out_file', 'in_tracks')]),
-            (self.nodes[fod_node_name], tcksift2, [(fod_output_name, 'in_fod')]),
+            (self.nodes['mtnormalise'], tcksift2, [('out_wm', 'in_fod')]),
             (tt5gen, tcksift2, [('out_file', 'act')])
         ])
-        
-        tck2connectome_fs = Node(TCK2Connectome(
-            symmetric=True,
-            zero_diagonal=True,
-            stat_edge="count",
-            force=True,
-            nthreads=self.config.n_threads
-        ), name='tck2connectome_fs')
-        
+
+        # --- Parcellation: FreeSurfer DK atlas ---
+        self._add_parcellation_pipeline(
+            atlas_name="dk",
+            aparc_file=self.layout.fs_aparc_aseg,
+            lut_file=FS_DEFAULT_LUT,
+            connectome_name="connectome_FreeSurferDK.csv",
+            tckgen_node=tckgen,
+            tcksift2_node=tcksift2,
+            extract_b0_node=extract_b0
+        )
+
+        # --- Parcellation: FreeSurfer Destrieux atlas ---
+        if self.layout.fs_aparc_destrieux is not None:
+            self._add_parcellation_pipeline(
+                atlas_name="destrieux",
+                aparc_file=self.layout.fs_aparc_destrieux,
+                lut_file=FS_A2009S_LUT,
+                connectome_name="connectome_Destrieux.csv",
+                tckgen_node=tckgen,
+                tcksift2_node=tcksift2,
+                extract_b0_node=extract_b0
+            )
+        else:
+            logger.warning("Skipping Destrieux atlas — aparc.a2009s+aseg.mgz not found.")
+
+        # TODO: Brainnetome atlas support — requires MNI template + ANTs registration
+        # to warp atlas from MNI space to native DWI space.
+
+        # --- DataSink to collect outputs ---
+        datasink = Node(DataSink(
+            base_directory=str(self.config.output_dir),
+            container=f"sub-{self.config.subject}_ses-{self.config.session}" if self.config.session else f"sub-{self.config.subject}"
+        ), name='datasink')
+        # Disable substitutions — we control file names explicitly
+        datasink.inputs.substitutions = []
+
+        # Sink connectomes
+        tck2conn_dk = self.nodes.get('tck2connectome_dk')
+        if tck2conn_dk:
+            self.workflow.connect([(tck2conn_dk, datasink, [('out_file', '@connectome_dk')])])
+        tck2conn_dest = self.nodes.get('tck2connectome_destrieux')
+        if tck2conn_dest:
+            self.workflow.connect([(tck2conn_dest, datasink, [('out_file', '@connectome_destrieux')])])
+
+        # Sink normalised WM FOD
         self.workflow.connect([
-            (tckgen, tck2connectome_fs, [('out_file', 'in_file')]),
-            (tcksift2, tck2connectome_fs, [('out_weights', 'in_weights')])
+            (self.nodes['mtnormalise'], datasink, [('out_wm', '@wmfod_norm')]),
+            (self.nodes['mask'], datasink, [('out_file', '@brain_mask')]),
+            (tcksift2, datasink, [('out_weights', '@sift2_weights')])
         ])
 
         logger.info("Tractography and connectome nodes added.")
         return self
+
+    def _add_parcellation_pipeline(
+        self,
+        atlas_name: str,
+        aparc_file,
+        lut_file: str,
+        connectome_name: str,
+        tckgen_node: Node,
+        tcksift2_node: Node,
+        extract_b0_node: Node
+    ) -> None:
+        """Adds parcellation conversion, registration, and connectome nodes for one atlas."""
+        lut_dir = find_mrtrix_lut_dir()
+        fs_color_lut = str(lut_dir / FS_COLOR_LUT)
+        target_lut = str(lut_dir / lut_file)
+
+        # 1. Convert aparc+aseg.mgz → NIfTI (preserve integer labels)
+        parc_convert = Node(MRConvert(
+            in_file=str(aparc_file),
+            out_file=f"aparc_{atlas_name}.nii.gz",
+            datatype="int32",
+            force=True,
+            nthreads=self.config.n_threads
+        ), name=f'parc_convert_{atlas_name}')
+        self.workflow.add_nodes([parc_convert])
+
+        # 2. labelconvert: FS label indices → sequential indices
+        labelconv = Node(LabelConvert(
+            in_lut=fs_color_lut,
+            out_lut=target_lut,
+            out_file=f"parcels_{atlas_name}.mif",
+            force=True,
+            nthreads=self.config.n_threads
+        ), name=f'labelconvert_{atlas_name}')
+        self.workflow.connect([
+            (parc_convert, labelconv, [('out_file', 'in_file')])
+        ])
+
+        # 3. FLIRT -applyxfm: Transform parcellation to DWI space (nearest neighbour)
+        flirt_parc = Node(Flirt(
+            apply_xfm=True,
+            interp="nearestneighbour",
+            out_file=f"parcels_{atlas_name}_in_dwi.nii.gz",
+        ), name=f'flirt_parc_{atlas_name}')
+        self.workflow.connect([
+            (labelconv, flirt_parc, [('out_file', 'in_file')]),
+            (extract_b0_node, flirt_parc, [('out_file', 'reference')]),
+            (self.nodes['flirt_brain_to_dwi'], flirt_parc, [('out_matrix_file', 'init')])
+        ])
+
+        # 4. tck2connectome with this parcellation
+        tck2conn = Node(TCK2Connectome(
+            symmetric=True,
+            zero_diagonal=True,
+            stat_edge="count",
+            out_file=connectome_name,
+            force=True,
+            nthreads=self.config.n_threads
+        ), name=f'tck2connectome_{atlas_name}')
+        self.workflow.connect([
+            (tckgen_node, tck2conn, [('out_file', 'in_file')]),
+            (tcksift2_node, tck2conn, [('out_weights', 'in_weights')]),
+            (flirt_parc, tck2conn, [('out_file', 'in_parc')])
+        ])
+
+        self.nodes[f'tck2connectome_{atlas_name}'] = tck2conn
 
     def build(self) -> Workflow:
         """Returns the constructed workflow."""
@@ -261,6 +417,7 @@ class WorkflowBuilder:
             raise ValueError("Workflow has not been initialized.")
         logger.info("Workflow build complete.")
         return self.workflow
+
 
 class WorkflowDirector:
     """
@@ -276,5 +433,6 @@ class WorkflowDirector:
                 .add_preprocessing()
                 .add_response_estimation()
                 .add_fod_estimation()
+                .add_normalisation()
                 .add_tractography()
                 .build())

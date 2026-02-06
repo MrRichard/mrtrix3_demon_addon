@@ -1,0 +1,140 @@
+@startuml CLI Specification
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title MRtrix3 DWI Pipeline - CLI Specification
+
+package "Container Entry Point" {
+    component [dwi_pipeline CLI] as cli
+}
+
+note right of cli
+**Basic Invocation:**
+docker run --rm \\
+  -v /data/bids:/data:ro \\
+  -v /data/freesurfer:/freesurfer:ro \\
+  -v /data/bids/derivatives:/out \\
+  dwi-pipeline:latest \\
+  sub-01 ses-01
+
+**With Options:**
+docker run --rm \\
+  -v /data/bids:/data:ro \\
+  -v /data/freesurfer:/freesurfer:ro \\
+  -v /data/bids/derivatives:/out \\
+  dwi-pipeline:latest \\
+  sub-01 ses-01 \\
+  --nthreads 16 \\
+  --rerun
+end note
+
+card "Required Arguments" as required {
+  |Argument|Type|Description|
+  |subject|str|BIDS subject ID (e.g., sub-01)|
+  |session|str|BIDS session ID (e.g., ses-01)|
+}
+
+card "Optional Arguments" as optional {
+  |Argument|Type|Default|Description|
+  |--nthreads|int|4|Number of threads (1-32)|
+  |--rerun|flag|False|Force rerun all steps|
+  |--verbose|flag|False|Verbose logging|
+  |--work-dir|path|/tmp|Working directory|
+}
+
+card "Automatic Detection" as auto {
+  **From BIDS Structure:**
+  • Shell configuration (single/multi)
+  • Distortion correction strategy
+  • Phase encoding direction
+  • Total readout time
+  
+  **From FreeSurfer:**
+  • Available parcellations
+  • FreeSurfer version
+  
+  **From Sidecar JSON:**
+  • TotalReadoutTime
+  • PhaseEncodingDirection
+  • EchoTime (for fieldmaps)
+  • EffectiveEchoSpacing
+}
+
+card "Exit Codes" as exits {
+  |Code|Meaning|
+  |0|Success|
+  |1|Missing required inputs|
+  |2|FreeSurfer validation failed|
+  |3|BIDS validation failed|
+  |4|Workflow execution failed|
+  |5|Report generation failed|
+}
+
+cli --> required : parses
+cli --> optional : parses
+cli --> auto : detects
+cli --> exits : returns
+
+@enduml
+
+@startuml CLI Argument Flow
+title CLI Argument Processing Flow
+
+start
+
+:Parse command line arguments;
+
+:Validate required arguments
+(subject, session);
+
+if (Arguments valid?) then (yes)
+  :Set defaults
+  - nthreads = 4
+  - rerun = False
+  - work_dir = /tmp;
+  
+  :Discover BIDS layout
+  /data/subject/session/;
+  
+  if (DWI files found?) then (yes)
+    :Validate FreeSurfer
+    /freesurfer/subject/;
+    
+    if (FreeSurfer valid?) then (yes)
+      :Extract metadata
+      from JSON sidecars;
+      
+      :Detect shell configuration
+      (single/multi);
+      
+      :Detect distortion correction
+      (rpe_pair/fieldmap/none);
+      
+      :Create ProcessingConfig
+      with all parameters;
+      
+      :Build and execute
+      Nipype workflow;
+      
+      :Generate QC report;
+      
+      stop
+      
+    else (no FreeSurfer)
+      :Exit code 2
+      FreeSurfer required;
+      stop
+    endif
+    
+  else (no DWI)
+    :Exit code 3
+    BIDS validation failed;
+    stop
+  endif
+  
+else (invalid)
+  :Exit code 1
+  Show usage help;
+  stop
+endif
+
+@enduml

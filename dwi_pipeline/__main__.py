@@ -35,7 +35,7 @@ def main():
 
         # 1. Discover BIDS layout
         logger.info(f"Discovering BIDS data for sub-{args.subject}, ses-{args.session} in {args.bids_dir}")
-        bids_reader = BidsReader(args.bids_dir)
+        bids_reader = BidsReader(args.bids_dir, args.freesurfer_dir)
         layout = bids_reader.discover(args.subject, args.session)
 
         # 2. Validate FreeSurfer data
@@ -73,11 +73,12 @@ def main():
         
         # 5. Create and run workflow
         logger.info("Creating workflow...")
+        config.subject_output_dir.mkdir(parents=True, exist_ok=True)
         workflow_factory = WorkflowFactory()
         workflow = workflow_factory.create_workflow(layout, config, dwi_data)
-        
+
         logger.info(f"Executing workflow: {workflow.name}")
-        workflow.run()
+        workflow.run(plugin='MultiProc', plugin_args={'n_procs': config.n_threads})
         
         logger.info("--- DWI Pipeline Finished Successfully ---")
 

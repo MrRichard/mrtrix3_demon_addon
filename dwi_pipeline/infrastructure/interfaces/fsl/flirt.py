@@ -57,7 +57,21 @@ class FlirtInputSpec(CommandLineInputSpec):
         argstr="-searchrz %d %d",
         desc="Search range for rotation about z-axis (degrees)."
     )
-    
+    apply_xfm = traits.Bool(
+        argstr="-applyxfm",
+        desc="Apply existing transform."
+    )
+    init = File(
+        exists=True,
+        argstr="-init %s",
+        desc="Input transformation matrix."
+    )
+    interp = traits.Enum(
+        "trilinear", "nearestneighbour", "sinc", "spline",
+        argstr="-interp %s",
+        desc="Interpolation method."
+    )
+
 class FlirtOutputSpec(TraitedSpec):
     """
     Output Spec for FSL's flirt command.

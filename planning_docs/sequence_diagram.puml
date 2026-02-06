@@ -1,0 +1,130 @@
+@startuml Workflow Execution Sequence
+title MRtrix3 DWI Pipeline - Workflow Execution Flow
+
+actor Researcher
+participant "CLI\nEntry Point" as CLI
+participant "Configuration\nLoader" as Config
+participant "BIDS\nReader" as BIDS
+participant "Workflow\nFactory" as Factory
+participant "Processing\nStrategy" as Strategy
+participant "Workflow\nBuilder" as Builder
+participant "Nipype\nWorkflow" as Nipype
+participant "MRtrix3/FSL\nTools" as Tools
+participant "Report\nGenerator" as Report
+database "Output\nDirectory" as Output
+
+Researcher -> CLI: docker run with\nBIDS paths and subject ID
+activate CLI
+
+CLI -> Config: Load configuration
+activate Config
+Config --> CLI: ProcessingConfig
+deactivate Config
+
+CLI -> BIDS: Discover BIDS files
+activate BIDS
+BIDS -> BIDS: Find DWI, anatomical,\nfieldmap files
+BIDS -> BIDS: Detect shell configuration
+BIDS -> BIDS: Detect distortion correction
+BIDS --> CLI: BidsLayout
+deactivate BIDS
+
+CLI -> CLI: Validate inputs
+alt Validation Failed
+    CLI --> Researcher: Error: Missing required files
+else Validation Passed
+    CLI -> Factory: Create workflow for\nBidsLayout and Config
+    activate Factory
+    
+    Factory -> Factory: Determine processing strategy\n(single-shell vs multi-shell)
+    Factory -> Strategy: Create strategy instance
+    activate Strategy
+    Strategy --> Factory: SingleShellStrategy\nor MultiShellStrategy
+    deactivate Strategy
+    
+    Factory -> Builder: Initialize builder
+    activate Builder
+    Builder -> Builder: Reset workflow
+    
+    Factory -> Builder: Add preprocessing steps
+    Builder -> Strategy: Get preprocessing nodes
+    activate Strategy
+    Strategy --> Builder: Node list
+    deactivate Strategy
+    Builder -> Builder: Add nodes to workflow
+    
+    Factory -> Builder: Add response estimation
+    Builder -> Strategy: Get response nodes
+    activate Strategy
+    Strategy --> Builder: Node list
+    deactivate Strategy
+    Builder -> Builder: Add nodes to workflow
+    
+    Factory -> Builder: Add FOD estimation
+    Builder -> Strategy: Get FOD nodes
+    activate Strategy
+    Strategy --> Builder: Node list
+    deactivate Strategy
+    Builder -> Builder: Add nodes to workflow
+    
+    Factory -> Builder: Add tractography
+    Builder -> Builder: Add tckgen nodes
+    
+    Factory -> Builder: Add connectome generation
+    Builder -> Builder: Add tck2connectome nodes
+    
+    Factory -> Builder: Build workflow
+    Builder --> Factory: Complete Nipype Workflow
+    deactivate Builder
+    
+    Factory --> CLI: Configured workflow
+    deactivate Factory
+    
+    CLI -> Nipype: Execute workflow
+    activate Nipype
+    
+    loop For each node in workflow graph
+        Nipype -> Nipype: Check if output exists\n(caching)
+        alt Output exists and not rerun
+            Nipype -> Nipype: Skip node
+        else Need to execute
+            Nipype -> Tools: Execute command\n(mrconvert, dwidenoise, etc.)
+            activate Tools
+            Tools --> Nipype: Return outputs
+            deactivate Tools
+            Nipype -> Output: Write outputs
+        end
+    end
+    
+    Nipype --> CLI: Workflow completed
+    deactivate Nipype
+    
+    CLI -> Report: Generate QC report
+    activate Report
+    Report -> Output: Read connectomes\nand intermediate files
+    Report -> Output: Write HTML report
+    Report --> CLI: Report generated
+    deactivate Report
+    
+    CLI --> Researcher: Success: Pipeline completed
+end
+
+deactivate CLI
+
+note right of Factory
+  Factory determines which
+  strategy to use based on:
+  - Shell configuration
+  - Distortion correction
+  - Available data
+end note
+
+note right of Nipype
+  Nipype manages:
+  - Dependency graph
+  - Execution order
+  - Caching/provenance
+  - Parallel execution
+end note
+
+@enduml

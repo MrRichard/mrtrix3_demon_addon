@@ -3,6 +3,7 @@ from typing import Optional, List
 import logging
 
 from ...domain.models.bids_layout import BidsLayout
+from ...domain.enums.distortion import DistortionStrategy
 from ...domain.exceptions.errors import BidsValidationError
 
 logger = logging.getLogger(__name__)
@@ -12,10 +13,11 @@ class BidsReader:
     Discovers BIDS-compliant files for a given subject and session
     and constructs a BidsLayout object.
     """
-    def __init__(self, bids_root: Path):
+    def __init__(self, bids_root: Path, freesurfer_dir: Path):
         if not bids_root.is_dir():
             raise FileNotFoundError(f"BIDS root directory not found: {bids_root}")
         self.bids_root = bids_root
+        self.freesurfer_dir = freesurfer_dir
 
     def discover(self, subject: str, session: Optional[str] = None) -> BidsLayout:
         """
@@ -131,19 +133,32 @@ class BidsReader:
                     magnitude2_nifti = None
 
         # --- FreeSurfer directory (mandatory for now) ---
-        # The BIDS layout object takes the absolute path to the FreeSurfer output
-        # For now, we assume it's mounted at /freesurfer and structured as /freesurfer/sub-XX[/ses-YY]
-        freesurfer_subject_dir = Path("/freesurfer") / sub_prefix
-        # If session is used in FreeSurfer output, this logic might need to be adjusted
-        # For simplicity, we are assuming /freesurfer/sub-XX as the base FS dir.
-        # The BidsLayout itself only needs to know the base subject FS dir.
+        freesurfer_subject_dir = self.freesurfer_dir / sub_prefix
 
         if not freesurfer_subject_dir.is_dir():
-            # This is a critical error as FreeSurfer is mandatory
             raise BidsValidationError(
                 f"FreeSurfer subject directory not found at {freesurfer_subject_dir}",
-                [f"Expected FreeSurfer output for {sub_prefix} at /freesurfer/{sub_prefix}"]
+                [f"Expected FreeSurfer output for {sub_prefix} at {freesurfer_subject_dir}"]
             )
+
+        # Discover FreeSurfer parcellation files
+        fs_brain = freesurfer_subject_dir / "mri" / "brain.mgz"
+        fs_aparc_aseg = freesurfer_subject_dir / "mri" / "aparc+aseg.mgz"
+        fs_aparc_destrieux = freesurfer_subject_dir / "mri" / "aparc.a2009s+aseg.mgz"
+
+        if not fs_brain.exists():
+            raise BidsValidationError(
+                f"FreeSurfer brain.mgz not found at {fs_brain}",
+                [f"Missing brain.mgz for {sub_prefix}"]
+            )
+        if not fs_aparc_aseg.exists():
+            raise BidsValidationError(
+                f"FreeSurfer aparc+aseg.mgz not found at {fs_aparc_aseg}",
+                [f"Missing aparc+aseg.mgz for {sub_prefix}"]
+            )
+        if not fs_aparc_destrieux.exists():
+            logger.warning(f"FreeSurfer aparc.a2009s+aseg.mgz not found at {fs_aparc_destrieux}. Destrieux atlas will be skipped.")
+            fs_aparc_destrieux = None
 
         # Construct BidsLayout
         layout = BidsLayout(
@@ -163,7 +178,10 @@ class BidsReader:
             phasediff_nifti=phasediff_nifti,
             phasediff_json=phasediff_json,
             magnitude1_nifti=magnitude1_nifti,
-            magnitude2_nifti=magnitude2_nifti
+            magnitude2_nifti=magnitude2_nifti,
+            fs_brain=fs_brain,
+            fs_aparc_aseg=fs_aparc_aseg,
+            fs_aparc_destrieux=fs_aparc_destrieux
         )
         
         # Populate derived properties (ShellType, DistortionStrategy) - these will be set later by metadata extractor

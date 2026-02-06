@@ -38,6 +38,12 @@ class TCK2ConnectomeInputSpec(CommandLineInputSpec):
         argstr="-nthreads %d",
         desc="Number of threads to use for computation."
     )
+    # SIFT2 weights
+    in_weights = File(
+        exists=True,
+        argstr="-tck_weights_in %s",
+        desc="Specify a text scalar file containing the streamline weights (e.g. from tcksift2)."
+    )
     # Connectome generation options
     symmetric = traits.Bool(
         False,

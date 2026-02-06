@@ -1,0 +1,180 @@
+@startuml Class Diagram with Design Patterns
+skinparam linetype ortho
+
+package "Domain Layer" {
+    class BidsLayout {
+        +subject: str
+        +session: Optional[str]
+        +dwi_files: Dict[str, Path]
+        +anat_files: Dict[str, Path]
+        +freesurfer_dir: Optional[Path]
+        +distortion_correction: str
+        +shell_config: str
+        --
+        +validate() : Tuple[bool, List[str]]
+        +get_dwi_metadata() : DwiMetadata
+    }
+
+    class DwiData {
+        +bvals: np.ndarray
+        +bvecs: np.ndarray
+        +shell_type: ShellType
+        +unique_shells: List[float]
+        +pe_direction: str
+        +total_readout_time: float
+        --
+        +detect_shells() : ShellType
+        +requires_degibbs() : bool
+    }
+
+    class ProcessingConfig {
+        +subject: str
+        +session: Optional[str]
+        +shell_strategy: ShellStrategy
+        +distortion_strategy: DistortionStrategy
+        +atlases: List[str]
+        +rerun: bool
+        --
+        +from_bids_layout(layout: BidsLayout) : ProcessingConfig
+        +validate() : bool
+    }
+
+    enum ShellType {
+        SINGLE_SHELL
+        MULTI_SHELL
+    }
+
+    enum DistortionStrategy {
+        RPE_PAIR
+        FIELDMAP
+        NONE
+    }
+
+    BidsLayout --> DwiData : contains
+    ProcessingConfig --> ShellType : uses
+    ProcessingConfig --> DistortionStrategy : uses
+}
+
+package "Application Layer - Strategy Pattern" {
+    abstract class ProcessingStrategy {
+        {abstract} +create_preprocessing_nodes() : List[Node]
+        {abstract} +create_response_estimation_nodes() : List[Node]
+        {abstract} +create_fod_estimation_nodes() : List[Node]
+        {abstract} +get_cutoff_value() : float
+    }
+
+    class SingleShellStrategy {
+        +create_preprocessing_nodes() : List[Node]
+        +create_response_estimation_nodes() : List[Node]
+        +create_fod_estimation_nodes() : List[Node]
+        +get_cutoff_value() : float
+    }
+
+    class MultiShellStrategy {
+        +create_preprocessing_nodes() : List[Node]
+        +create_response_estimation_nodes() : List[Node]
+        +create_fod_estimation_nodes() : List[Node]
+        +get_cutoff_value() : float
+    }
+
+    ProcessingStrategy <|-- SingleShellStrategy
+    ProcessingStrategy <|-- MultiShellStrategy
+}
+
+package "Application Layer - Factory Pattern" {
+    class WorkflowFactory {
+        -strategies: Dict[ShellType, ProcessingStrategy]
+        --
+        +create_workflow(config: ProcessingConfig, layout: BidsLayout) : Workflow
+        -determine_strategy(config: ProcessingConfig) : ProcessingStrategy
+    }
+
+    WorkflowFactory ..> ProcessingStrategy : creates
+    WorkflowFactory --> ProcessingConfig : uses
+    WorkflowFactory --> BidsLayout : uses
+}
+
+package "Application Layer - Builder Pattern" {
+    class WorkflowBuilder {
+        -workflow: Workflow
+        -strategy: ProcessingStrategy
+        -config: ProcessingConfig
+        -layout: BidsLayout
+        --
+        +reset() : WorkflowBuilder
+        +add_preprocessing() : WorkflowBuilder
+        +add_response_estimation() : WorkflowBuilder
+        +add_fod_estimation() : WorkflowBuilder
+        +add_tractography() : WorkflowBuilder
+        +add_connectome_generation() : WorkflowBuilder
+        +build() : Workflow
+    }
+
+    class WorkflowDirector {
+        -builder: WorkflowBuilder
+        --
+        +construct_full_pipeline() : Workflow
+        +construct_preprocessing_only() : Workflow
+    }
+
+    WorkflowBuilder --> ProcessingStrategy : uses
+    WorkflowBuilder --> ProcessingConfig : configures with
+    WorkflowDirector --> WorkflowBuilder : directs
+}
+
+package "Infrastructure Layer" {
+    interface MrtrixInterface {
+        +run(inputs: Dict) : Dict
+    }
+
+    class MRConvertNode {
+        +run(inputs: Dict) : Dict
+    }
+
+    class DwiDenoiseNode {
+        +run(inputs: Dict) : Dict
+    }
+
+    class DwiFslPreprocNode {
+        +run(inputs: Dict) : Dict
+    }
+
+    class TckGen Node {
+        +run(inputs: Dict) : Dict
+    }
+
+    MrtrixInterface <|.. MRConvertNode
+    MrtrixInterface <|.. DwiDenoiseNode
+    MrtrixInterface <|.. DwiFslPreprocNode
+    MrtrixInterface <|.. TckGenNode
+}
+
+' Cross-layer relationships
+WorkflowBuilder ..> MrtrixInterface : uses
+SingleShellStrategy ..> MrtrixInterface : configures
+MultiShellStrategy ..> MrtrixInterface : configures
+
+note right of ProcessingStrategy
+  Strategy Pattern: Different
+  algorithms for single-shell
+  vs multi-shell processing
+end note
+
+note right of WorkflowFactory
+  Factory Pattern: Creates
+  appropriate workflow based
+  on data characteristics
+end note
+
+note right of WorkflowBuilder
+  Builder Pattern: Constructs
+  complex Nipype workflow
+  step-by-step
+end note
+
+note left of BidsLayout
+  Domain Model: Pure business
+  logic, no framework dependencies
+end note
+
+@enduml

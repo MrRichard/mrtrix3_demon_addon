@@ -1,0 +1,211 @@
+@startuml Atlas and Parameter Management
+title Atlas Management & BIDS JSON Parameter Extraction
+
+package "Container Image" {
+    folder "/opt/atlases/" as container_atlases {
+        file "Brainnetome.nii.gz" #lightblue
+        file "Brainnetome_labels.txt" #lightblue
+        
+        file "MNI152_T2_relx.nii" #lightblue
+        note right: Template for registration
+        
+        file "README.md" #lightgray
+        note right
+            Atlas information:
+            - Brainnetome: 246 regions
+            - Source: Brainnetome Atlas Project
+            - Reference: Fan et al. 2016
+            
+            Future additions:
+            - Custom atlases via /custom-atlases mount
+        end note
+    }
+    
+    note right of container_atlases
+        **Atlases Shipped in Container:**
+        
+        ✓ Brainnetome (246 regions)
+        ✓ MNI152 T2 template
+        
+        These are baked into the
+        container image (~200MB)
+        
+        No external mount needed
+        for standard processing
+    end note
+}
+
+package "BIDS Dataset" {
+    folder "/data/sub-01/ses-01/dwi/" as dwi_dir {
+        file "sub-01_ses-01_dir-AP_dwi.nii.gz"
+        file "sub-01_ses-01_dir-AP_dwi.json" #gold
+        
+        note right of "sub-01_ses-01_dir-AP_dwi.json"
+            **REQUIRED PARAMETERS** 
+            extracted from this file:
+            
+            {
+              "PhaseEncodingDirection": "j",
+              "TotalReadoutTime": 0.0936,
+              "EffectiveEchoSpacing": 0.00039,
+              "EchoTime": 0.089,
+              "RepetitionTime": 8.3,
+              "FlipAngle": 90,
+              "Manufacturer": "Siemens",
+              "ManufacturersModelName": "Prisma",
+              "MagneticFieldStrength": 3
+            }
+            
+            **Key Parameters Used:**
+            • PhaseEncodingDirection → dwifslpreproc -pe_dir
+            • TotalReadoutTime → dwifslpreproc -readout_time
+            • (or calculated from EffectiveEchoSpacing × ReconMatrixPE)
+            
+            **Optional but Useful:**
+            • EchoTime → QC reporting
+            • RepetitionTime → QC reporting
+            • Scanner info → Provenance tracking
+        end note
+    }
+    
+    folder "/data/sub-01/ses-01/fmap/" as fmap_dir {
+        file "sub-01_ses-01_phasediff.json" #gold
+        
+        note right
+            **Fieldmap Parameters:**
+            
+            {
+              "EchoTime1": 0.00492,
+              "EchoTime2": 0.00738,
+              "IntendedFor": "ses-01/dwi/sub-01_ses-01_dir-AP_dwi.nii.gz"
+            }
+            
+            **Calculated:**
+            DELTA_TE = EchoTime2 - EchoTime1
+                     = 0.00246 seconds
+                     = 2.46 milliseconds
+            
+            Used for fsl_prepare_fieldmap
+        end note
+    }
+}
+
+package "Parameter Extraction Flow" {
+    component "BidsMetadataExtractor" as extractor {
+        [Read JSON Sidecars]
+        [Validate Required Fields]
+        [Calculate Derived Parameters]
+        [Populate DwiData Model]
+    }
+    
+    card "DwiData Model" as dwi_data {
+        **Extracted Parameters:**
+        • pe_direction: str
+        • total_readout_time: float
+        • echo_time: float
+        • repetition_time: float
+        • delta_te: float (if fieldmaps)
+        
+        **Derived Parameters:**
+        • shell_type: ShellType
+        • unique_shells: List[float]
+        • distortion_correction: DistortionStrategy
+    }
+    
+    extractor --> dwi_data : populates
+}
+
+dwi_dir --> extractor : reads
+fmap_dir --> extractor : reads
+
+package "Parameter Validation" {
+    class ParameterValidator {
+        +validate_pe_direction(json_data) : str
+        +validate_readout_time(json_data) : float
+        +validate_fieldmap_params(json_data) : Dict
+        --
+        **Validation Rules:**
+        
+        PE Direction:
+        • Must be one of: i, i-, j, j-, k, k-
+        • Or calculate from InPlanePhaseEncodingDirection
+        • Fail if missing or invalid
+        
+        Readout Time:
+        • Check TotalReadoutTime first
+        • If missing, calculate from:
+          EffectiveEchoSpacing × (ReconMatrixPE - 1)
+        • Must be > 0 and < 1.0 seconds
+        • Fail if cannot determine
+        
+        Fieldmap:
+        • Require EchoTime1 and EchoTime2
+        • DELTA_TE must be > 0
+        • Typical range: 2-3 milliseconds
+        • Warn if unusual values
+    }
+}
+
+extractor --> ParameterValidator : uses
+
+package "Usage in Pipeline" {
+    usecase "Distortion Correction" as UC1
+    usecase "Template Registration" as UC2
+    usecase "QC Reporting" as UC3
+    
+    note right of UC1
+        dwifslpreproc uses:
+        • -pe_dir {pe_direction}
+        • -readout_time {total_readout_time}
+        
+        fsl_prepare_fieldmap uses:
+        • DELTA_TE (in milliseconds)
+    end note
+    
+    note right of UC2
+        antsRegistration uses:
+        • Brainnetome atlas from /opt/atlases/
+        • MNI template from /opt/atlases/
+        
+        No external mount required
+    end note
+    
+    note right of UC3
+        QC report includes:
+        • Acquisition parameters
+        • Scanner information
+        • Processing parameters
+        
+        All from BIDS JSON
+    end note
+}
+
+dwi_data --> UC1
+container_atlases --> UC2
+dwi_data --> UC3
+
+note bottom
+    **Key Design Principle:**
+    
+    ALL pipeline parameters come from BIDS metadata.
+    NO manual parameter specification required.
+    Container is self-contained with atlases.
+    
+    **Parameter Priority:**
+    1. BIDS JSON sidecar (primary source)
+    2. Calculated from related fields
+    3. Fail if required parameter missing
+    
+    **Never Hardcode:**
+    ✗ PE direction
+    ✗ Readout time
+    ✗ Echo times
+    ✗ Scanner parameters
+    
+    **Always Extract from BIDS:**
+    ✓ All acquisition parameters
+    ✓ Scanner metadata
+    ✓ Sequence parameters
+end note
+
+@enduml
