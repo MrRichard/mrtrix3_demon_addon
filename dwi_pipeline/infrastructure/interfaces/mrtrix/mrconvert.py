@@ -1,4 +1,4 @@
-from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits
+from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits, isdefined
 import os
 
 class MRConvertInputSpec(CommandLineInputSpec):
@@ -31,9 +31,11 @@ class MRConvertInputSpec(CommandLineInputSpec):
         argstr="-nthreads %d",
         desc="Number of threads to use for computation."
     )
-    # DWI-specific options (separate traits for Nipype workflow connections)
+    # DWI-specific options (separate traits for Nipype workflow connections).
+    # -fslgrad formatting is handled by MRConvert._format_arg().
     in_bvec = File(
         exists=True,
+        argstr="-fslgrad %s",
         desc="FSL bvecs file (used with -fslgrad)."
     )
     in_bval = File(
@@ -82,7 +84,7 @@ class MRConvert(CommandLine):
     >>> mrconv.inputs.in_bval = "dwi.bval"
     >>> mrconv.inputs.nthreads = 4
     >>> mrconv.cmdline
-    'mrconvert -nthreads 4 -fslgrad dwi.bvec dwi.bval dwi.nii.gz dwi.mif'
+    'mrconvert -fslgrad dwi.bvec dwi.bval -nthreads 4 dwi.nii.gz dwi.mif'
     >>> # Run this for real if MRtrix3 is installed and in PATH
     >>> # mrconv.run()
     """
@@ -90,30 +92,10 @@ class MRConvert(CommandLine):
     input_spec = MRConvertInputSpec
     output_spec = MRConvertOutputSpec
 
-    @property
-    def cmdline(self):
-        # Build command manually to handle -fslgrad bvec bval ordering
-        cmd = [self._cmd]
-
-        # Generic options
-        if self.inputs.nthreads > 1:
-            cmd.append(f"-nthreads {self.inputs.nthreads}")
-        if self.inputs.force:
-            cmd.append("-force")
-        if self.inputs.json_sidecar:
-            cmd.append(f"-json_import {self.inputs.json_sidecar}")
-        if self.inputs.datatype:
-            cmd.append(f"-datatype {self.inputs.datatype}")
-
-        # FSL gradient table: -fslgrad bvecs bvals
-        if self.inputs.in_bvec and self.inputs.in_bval:
-            cmd.append(f"-fslgrad {self.inputs.in_bvec} {self.inputs.in_bval}")
-
-        # Positional: in_file out_file
-        cmd.append(self.inputs.in_file)
-        cmd.append(self.inputs.out_file)
-
-        return " ".join(cmd)
+    def _format_arg(self, name, trait_spec, value):
+        if name == "in_bvec" and isdefined(self.inputs.in_bval):
+            return f"-fslgrad {value} {self.inputs.in_bval}"
+        return super()._format_arg(name, trait_spec, value)
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
