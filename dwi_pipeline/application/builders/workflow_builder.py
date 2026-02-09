@@ -53,8 +53,12 @@ class WorkflowBuilder:
         """Adds DWI preprocessing nodes to the workflow."""
         logger.info("Adding preprocessing nodes...")
 
+        input_fields = ['dwi_file', 'in_bval', 'in_bvec', 'in_json', 't1w_file']
+        if self.layout.distortion_correction == DistortionStrategy.RPE_PAIR:
+            input_fields += ['dwi_pa_file', 'pa_bval', 'pa_bvec']
+
         input_node = Node(
-            niu.IdentityInterface(fields=['dwi_file', 'in_bval', 'in_bvec', 'in_json', 't1w_file']),
+            niu.IdentityInterface(fields=input_fields),
             name='inputspec'
         )
         input_node.inputs.dwi_file = str(self.layout.dwi_ap)
@@ -62,6 +66,10 @@ class WorkflowBuilder:
         input_node.inputs.in_bvec = str(self.layout.dwi_ap_bvec)
         input_node.inputs.in_json = str(self.layout.dwi_ap_json)
         input_node.inputs.t1w_file = str(self.layout.t1w)
+        if self.layout.distortion_correction == DistortionStrategy.RPE_PAIR:
+            input_node.inputs.dwi_pa_file = str(self.layout.dwi_pa)
+            input_node.inputs.pa_bval = str(self.layout.dwi_pa_bval)
+            input_node.inputs.pa_bvec = str(self.layout.dwi_pa_bvec)
         self.nodes['inputspec'] = input_node
 
         mrconvert = Node(MRConvert(
@@ -96,6 +104,21 @@ class WorkflowBuilder:
 
         preproc = self._create_distortion_correction_node()
         self.workflow.connect([(prev_node, preproc, [('out_file', 'in_file')])])
+
+        # Wire reverse PE data for RPE_PAIR distortion correction
+        if self.layout.distortion_correction == DistortionStrategy.RPE_PAIR:
+            mrconvert_pa = Node(MRConvert(
+                force=True,
+                nthreads=self.config.n_threads
+            ), name='mrconvert_pa')
+            self.workflow.connect([
+                (input_node, mrconvert_pa, [
+                    ('dwi_pa_file', 'in_file'),
+                    ('pa_bvec', 'in_bvec'),
+                    ('pa_bval', 'in_bval'),
+                ]),
+                (mrconvert_pa, preproc, [('out_file', 'se_epi')])
+            ])
 
         biascorrect = Node(DWIBiasCorrect(
             use_ants=True,
