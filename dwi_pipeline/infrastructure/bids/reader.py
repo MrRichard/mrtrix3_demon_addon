@@ -8,6 +8,17 @@ from ...domain.exceptions.errors import BidsValidationError
 
 logger = logging.getLogger(__name__)
 
+
+def _swap_nifti_ext(nifti_path: Path, new_ext: str) -> Path:
+    """Replace .nii.gz (or .nii) with a new extension like .bval, .bvec, .json."""
+    name = nifti_path.name
+    if name.endswith('.nii.gz'):
+        return nifti_path.parent / (name[:-7] + new_ext)
+    elif name.endswith('.nii'):
+        return nifti_path.parent / (name[:-4] + new_ext)
+    return nifti_path.with_suffix(new_ext)
+
+
 class BidsReader:
     """
     Discovers BIDS-compliant files for a given subject and session
@@ -51,17 +62,23 @@ class BidsReader:
         dwi_nifti_pattern = f"{sub_prefix}{ses_prefix}*_dwi.nii.gz"
         dwi_nifti_files = list(base_search_path.glob(f"dwi/{dwi_nifti_pattern}"))
         if not dwi_nifti_files:
-            dwi_nifti_files = list(base_search_path.glob(f"*/dwi/{dwi_nifti_pattern}")) # Check one level deeper for multi-run folders
+            dwi_nifti_files = list(base_search_path.glob(f"*/dwi/{dwi_nifti_pattern}"))
         if not dwi_nifti_files:
             raise BidsValidationError(f"No DWI NIfTI file found for {sub_prefix}{ses_prefix}", [f"Missing DWI file: {dwi_nifti_pattern}"])
-        
-        # For simplicity, pick the first one. In a real scenario, this might need more logic
-        # to handle multiple runs or prefer certain acquisition parameters.
-        dwi_ap = dwi_nifti_files[0]
-        
-        dwi_ap_bval = dwi_ap.with_suffix('.bval')
-        dwi_ap_bvec = dwi_ap.with_suffix('.bvec')
-        dwi_ap_json = dwi_ap.with_suffix('.json')
+
+        # Prefer dir-AP explicitly, then any non-PA file, then fall back to first match
+        ap_files = [f for f in dwi_nifti_files if '_dir-AP_' in f.name]
+        non_pa_files = [f for f in dwi_nifti_files if '_dir-PA_' not in f.name]
+        if ap_files:
+            dwi_ap = ap_files[0]
+        elif non_pa_files:
+            dwi_ap = non_pa_files[0]
+        else:
+            dwi_ap = dwi_nifti_files[0]
+
+        dwi_ap_bval = _swap_nifti_ext(dwi_ap, '.bval')
+        dwi_ap_bvec = _swap_nifti_ext(dwi_ap, '.bvec')
+        dwi_ap_json = _swap_nifti_ext(dwi_ap, '.json')
 
         missing_dwi_files: List[str] = []
         for f in [dwi_ap_bval, dwi_ap_bvec, dwi_ap_json]:
@@ -79,7 +96,7 @@ class BidsReader:
             raise BidsValidationError(f"No T1w NIfTI file found for {sub_prefix}{ses_prefix}", [f"Missing T1w file: {t1w_nifti_pattern}"])
         
         t1w = t1w_nifti_files[0]
-        t1w_json = t1w.with_suffix('.json')
+        t1w_json = _swap_nifti_ext(t1w, '.json')
         if not t1w_json.exists():
             raise BidsValidationError(f"Missing JSON sidecar for T1w file: {t1w.name}", [f"Missing T1w JSON: {t1w_json.name}"])
 
@@ -94,9 +111,9 @@ class BidsReader:
         rpe_files = list(base_search_path.glob(f"dwi/{rpe_pattern}"))
         if rpe_files:
             dwi_pa = rpe_files[0]
-            dwi_pa_bval = dwi_pa.with_suffix('.bval')
-            dwi_pa_bvec = dwi_pa.with_suffix('.bvec')
-            dwi_pa_json = dwi_pa.with_suffix('.json')
+            dwi_pa_bval = _swap_nifti_ext(dwi_pa, '.bval')
+            dwi_pa_bvec = _swap_nifti_ext(dwi_pa, '.bvec')
+            dwi_pa_json = _swap_nifti_ext(dwi_pa, '.json')
             if not all(f.exists() for f in [dwi_pa_bval, dwi_pa_bvec, dwi_pa_json]):
                 logger.warning(f"Found PA DWI ({dwi_pa.name}) but missing associated .bval/.bvec/.json files. Will proceed without RPE correction.")
                 dwi_pa = None # Invalidate if incomplete
@@ -116,7 +133,7 @@ class BidsReader:
             phasediff_files = list(fmap_path.glob(phasediff_pattern))
             if phasediff_files:
                 phasediff_nifti = phasediff_files[0]
-                phasediff_json = phasediff_nifti.with_suffix('.json')
+                phasediff_json = _swap_nifti_ext(phasediff_nifti, '.json')
                 
                 # Associated magnitude files
                 magnitude1_files = list(fmap_path.glob(f"{sub_prefix}{ses_prefix}*_magnitude1.nii.gz"))
@@ -133,12 +150,18 @@ class BidsReader:
                     magnitude2_nifti = None
 
         # --- FreeSurfer directory (mandatory for now) ---
+        # Try common FreeSurfer subject dir naming conventions:
+        #   sub-XX, sub-XX_ses-YY, or sub-XXses-YY
         freesurfer_subject_dir = self.freesurfer_dir / sub_prefix
+        if not freesurfer_subject_dir.is_dir() and session:
+            freesurfer_subject_dir = self.freesurfer_dir / f"{sub_prefix}_ses-{session}"
+        if not freesurfer_subject_dir.is_dir() and session:
+            freesurfer_subject_dir = self.freesurfer_dir / f"{sub_prefix}ses-{session}"
 
         if not freesurfer_subject_dir.is_dir():
             raise BidsValidationError(
-                f"FreeSurfer subject directory not found at {freesurfer_subject_dir}",
-                [f"Expected FreeSurfer output for {sub_prefix} at {freesurfer_subject_dir}"]
+                f"FreeSurfer subject directory not found at {self.freesurfer_dir / sub_prefix}",
+                [f"Expected FreeSurfer output for {sub_prefix} at {self.freesurfer_dir}"]
             )
 
         # Discover FreeSurfer parcellation files
