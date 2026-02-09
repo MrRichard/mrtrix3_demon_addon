@@ -73,7 +73,6 @@ class WorkflowBuilder:
                 ('dwi_file', 'in_file'),
                 ('in_bvec', 'in_bvec'),
                 ('in_bval', 'in_bval'),
-                ('in_json', 'json_sidecar')
             ])
         ])
 

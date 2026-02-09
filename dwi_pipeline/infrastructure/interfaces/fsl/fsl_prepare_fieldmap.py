@@ -1,4 +1,4 @@
-from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits
+from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits, isdefined
 import os
 
 class FSLPrepareFieldmapInputSpec(CommandLineInputSpec):
@@ -108,5 +108,8 @@ class FSLPrepareFieldmap(CommandLine):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["out_fieldmap"] = os.path.abspath(self.inputs.out_fieldmap)
+        if isdefined(self.inputs.out_fieldmap):
+            outputs["out_fieldmap"] = os.path.abspath(self.inputs.out_fieldmap)
+        else:
+            outputs["out_fieldmap"] = os.path.abspath(self._filename_from_source("out_fieldmap"))
         return outputs

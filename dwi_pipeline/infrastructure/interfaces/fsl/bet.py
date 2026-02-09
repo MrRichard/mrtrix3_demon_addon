@@ -1,4 +1,4 @@
-from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits
+from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits, isdefined
 import os
 
 class BetInputSpec(CommandLineInputSpec):
@@ -88,17 +88,21 @@ class Bet(CommandLine):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["out_file"] = os.path.abspath(self.inputs.out_file)
+        if isdefined(self.inputs.out_file):
+            out_file = self.inputs.out_file
+        else:
+            out_file = self._filename_from_source("out_file")
+        outputs["out_file"] = os.path.abspath(out_file)
         if self.inputs.mask:
             # The mask file is typically named out_file_mask
-            base, ext = os.path.splitext(self.inputs.out_file)
+            base, ext = os.path.splitext(out_file)
             if ext == ".gz": # Handle .nii.gz
                 base, ext2 = os.path.splitext(base)
                 ext = ext2 + ext
             outputs["mask_file"] = os.path.abspath(f"{base}_mask{ext}")
         if self.inputs.skull:
             # The skull file is typically named out_file_skull
-            base, ext = os.path.splitext(self.inputs.out_file)
+            base, ext = os.path.splitext(out_file)
             if ext == ".gz":
                 base, ext2 = os.path.splitext(base)
                 ext = ext2 + ext

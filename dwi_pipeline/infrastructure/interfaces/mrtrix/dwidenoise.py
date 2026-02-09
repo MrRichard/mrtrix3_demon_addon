@@ -1,4 +1,4 @@
-from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits
+from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits, isdefined
 import os
 
 class DWIDenoiseInputSpec(CommandLineInputSpec):
@@ -99,7 +99,10 @@ class DWIDenoise(CommandLine):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["out_file"] = os.path.abspath(self.inputs.out_file)
-        if self.inputs.noise:
+        if isdefined(self.inputs.out_file):
+            outputs["out_file"] = os.path.abspath(self.inputs.out_file)
+        else:
+            outputs["out_file"] = os.path.abspath(self._filename_from_source("out_file"))
+        if isdefined(self.inputs.noise):
             outputs["noise"] = os.path.abspath(self.inputs.noise)
         return outputs

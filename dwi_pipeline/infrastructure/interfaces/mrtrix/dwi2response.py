@@ -1,4 +1,4 @@
-from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits
+from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits, isdefined
 import os
 
 class DWI2ResponseInputSpec(CommandLineInputSpec):
@@ -146,16 +146,28 @@ class DWI2Response(CommandLine):
     def _list_outputs(self):
         outputs = self.output_spec().get()
         if self.inputs.algorithm == 'dhollander':
-            outputs["wm_file"] = os.path.abspath(self.inputs.wm_file)
-            outputs["gm_file"] = os.path.abspath(self.inputs.gm_file)
-            outputs["csf_file"] = os.path.abspath(self.inputs.csf_file)
+            if isdefined(self.inputs.wm_file):
+                outputs["wm_file"] = os.path.abspath(self.inputs.wm_file)
+            else:
+                outputs["wm_file"] = os.path.abspath(self._filename_from_source("wm_file"))
+            if isdefined(self.inputs.gm_file):
+                outputs["gm_file"] = os.path.abspath(self.inputs.gm_file)
+            else:
+                outputs["gm_file"] = os.path.abspath(self._filename_from_source("gm_file"))
+            if isdefined(self.inputs.csf_file):
+                outputs["csf_file"] = os.path.abspath(self.inputs.csf_file)
+            else:
+                outputs["csf_file"] = os.path.abspath(self._filename_from_source("csf_file"))
             # The 'out_file' is not used for dhollander, but Nipype requires it to be defined.
             # We can point it to the wm_file as the primary output.
-            outputs["out_file"] = os.path.abspath(self.inputs.wm_file)
+            outputs["out_file"] = outputs["wm_file"]
         else:
-            outputs["out_file"] = os.path.abspath(self.inputs.out_file)
-        
-        if self.inputs.voxels:
+            if isdefined(self.inputs.out_file):
+                outputs["out_file"] = os.path.abspath(self.inputs.out_file)
+            else:
+                outputs["out_file"] = os.path.abspath(self._filename_from_source("out_file"))
+
+        if isdefined(self.inputs.voxels):
             outputs["voxels"] = os.path.abspath(self.inputs.voxels)
-            
+
         return outputs

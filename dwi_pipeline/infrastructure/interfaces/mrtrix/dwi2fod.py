@@ -1,4 +1,4 @@
-from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits
+from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits, isdefined
 import os
 
 class DWI2FODInputSpec(CommandLineInputSpec):
@@ -146,7 +146,7 @@ class DWI2FOD(CommandLine):
             cmd.append("-force")
         if self.inputs.nthreads > 1:
             cmd.append(f"-nthreads {self.inputs.nthreads}")
-        if self.inputs.mask:
+        if isdefined(self.inputs.mask):
             cmd.append(f"-mask {self.inputs.mask}")
         
         # Algorithm and positional arguments
@@ -158,9 +158,9 @@ class DWI2FOD(CommandLine):
             cmd.append(self.inputs.out_file)
         elif self.inputs.algorithm == 'msmt_csd':
             cmd.extend([self.inputs.wm_response, self.inputs.wm_odf])
-            if self.inputs.gm_response and self.inputs.gm_odf:
+            if isdefined(self.inputs.gm_response) and isdefined(self.inputs.gm_odf):
                 cmd.extend([self.inputs.gm_response, self.inputs.gm_odf])
-            if self.inputs.csf_response and self.inputs.csf_odf:
+            if isdefined(self.inputs.csf_response) and isdefined(self.inputs.csf_odf):
                 cmd.extend([self.inputs.csf_response, self.inputs.csf_odf])
         else:
             raise ValueError(f"Unsupported algorithm: {self.inputs.algorithm}")
@@ -170,13 +170,19 @@ class DWI2FOD(CommandLine):
     def _list_outputs(self):
         outputs = self.output_spec().get()
         if self.inputs.algorithm == 'csd':
-            outputs["out_file"] = os.path.abspath(self.inputs.out_file)
+            if isdefined(self.inputs.out_file):
+                outputs["out_file"] = os.path.abspath(self.inputs.out_file)
+            else:
+                outputs["out_file"] = os.path.abspath(self._filename_from_source("out_file"))
         elif self.inputs.algorithm == 'msmt_csd':
-            outputs["wm_odf"] = os.path.abspath(self.inputs.wm_odf)
-            if self.inputs.gm_odf:
+            if isdefined(self.inputs.wm_odf):
+                outputs["wm_odf"] = os.path.abspath(self.inputs.wm_odf)
+            else:
+                outputs["wm_odf"] = os.path.abspath(self._filename_from_source("wm_odf"))
+            if isdefined(self.inputs.gm_odf):
                 outputs["gm_odf"] = os.path.abspath(self.inputs.gm_odf)
-            if self.inputs.csf_odf:
+            if isdefined(self.inputs.csf_odf):
                 outputs["csf_odf"] = os.path.abspath(self.inputs.csf_odf)
             # Set the primary output to be the WM ODF for downstream processing
-            outputs["out_file"] = os.path.abspath(self.inputs.wm_odf)
+            outputs["out_file"] = outputs["wm_odf"]
         return outputs

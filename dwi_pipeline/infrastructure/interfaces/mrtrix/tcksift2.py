@@ -1,4 +1,4 @@
-from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits
+from nipype.interfaces.base import CommandLineInputSpec, CommandLine, File, TraitedSpec, traits, isdefined
 import os
 
 class TckSift2InputSpec(CommandLineInputSpec):
@@ -74,5 +74,8 @@ class TckSift2(CommandLine):
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
-        outputs["out_weights"] = os.path.abspath(self.inputs.out_weights)
+        if isdefined(self.inputs.out_weights):
+            outputs["out_weights"] = os.path.abspath(self.inputs.out_weights)
+        else:
+            outputs["out_weights"] = os.path.abspath(self._filename_from_source("out_weights"))
         return outputs
