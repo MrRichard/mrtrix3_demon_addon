@@ -28,10 +28,14 @@ class FreeSurferValidator:
         sub_prefix = f"sub-{subject}"
 
         # Construct the expected FreeSurfer subject directory
+        # Try common naming conventions: sub-XX, sub-XX_ses-YY
         fs_subject_dir = self.freesurfer_base_dir / sub_prefix
+        if not fs_subject_dir.is_dir() and session:
+            fs_subject_dir = self.freesurfer_base_dir / f"{sub_prefix}_ses-{session}"
+
         if not fs_subject_dir.is_dir():
             errors.append(f"FreeSurfer subject directory not found: {fs_subject_dir}")
-            errors.append(f"Expected: {self.freesurfer_base_dir} / {sub_prefix}")
+            errors.append(f"Expected: {self.freesurfer_base_dir} / {sub_prefix} (or {sub_prefix}_ses-{session})")
             errors.append("Please ensure recon-all has completed for this subject and the FreeSurfer output is correctly mounted.")
             return False, errors # No point checking for files if dir doesn't exist
 
@@ -57,24 +61,29 @@ class FreeSurferValidator:
         else:
             return False, errors
 
-    def get_parcellation_path(self, subject: str, parcellation_name: str) -> Path:
+    def get_parcellation_path(self, subject: str, parcellation_name: str, session: Optional[str] = None) -> Path:
         """
         Returns the path to a specific FreeSurfer parcellation file.
-        
+
         Args:
             subject (str): The subject ID.
             parcellation_name (str): The name of the parcellation (e.g., 'aparc+aseg', 'aparc.a2009s+aseg').
-            
+            session (str, optional): The session ID. Defaults to None.
+
         Returns:
             Path: The full path to the parcellation file.
-            
+
         Raises:
             FreeSurferError: If the requested parcellation file does not exist.
         """
-        fs_subject_dir = self.freesurfer_base_dir / f"sub-{subject}"
+        sub_prefix = f"sub-{subject}"
+        fs_subject_dir = self.freesurfer_base_dir / sub_prefix
+        if not fs_subject_dir.is_dir() and session:
+            fs_subject_dir = self.freesurfer_base_dir / f"{sub_prefix}_ses-{session}"
+
         parcellation_file = fs_subject_dir / "mri" / f"{parcellation_name}.mgz"
-        
+
         if not parcellation_file.exists():
             raise FreeSurferError(f"FreeSurfer parcellation '{parcellation_name}.mgz' not found for subject {subject} at {parcellation_file}")
-            
+
         return parcellation_file
