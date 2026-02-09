@@ -15,6 +15,11 @@ _COMMON_LUT_DIRS = [
     "/opt/mrtrix3/share/mrtrix3/labelconvert",
 ]
 
+_COMMON_FS_DIRS = [
+    "/usr/local/freesurfer",
+    "/opt/freesurfer",
+]
+
 
 def find_mrtrix_lut_dir() -> Path:
     """
@@ -56,4 +61,49 @@ def find_mrtrix_lut_dir() -> Path:
     raise FileNotFoundError(
         "Could not find MRtrix3 LUT directory. Set the MRTRIX_LUTS environment variable "
         "or ensure MRtrix3 is installed in a standard location."
+    )
+
+
+def find_freesurfer_color_lut(freesurfer_dir: Path | None = None) -> Path:
+    """
+    Locate FreeSurferColorLUT.txt, which ships with FreeSurfer (not MRtrix3).
+
+    Search order:
+    1. Provided freesurfer_dir (the top-level FS derivatives mount)
+    2. FREESURFER_HOME environment variable
+    3. Common container installation paths
+
+    Args:
+        freesurfer_dir: Top-level FreeSurfer derivatives directory (e.g. /freesurfer).
+
+    Returns:
+        Path to FreeSurferColorLUT.txt.
+
+    Raises:
+        FileNotFoundError: If FreeSurferColorLUT.txt cannot be found.
+    """
+    target = FS_COLOR_LUT
+
+    # 1. Check the provided freesurfer derivatives dir
+    if freesurfer_dir:
+        p = Path(freesurfer_dir) / target
+        if p.is_file():
+            return p
+
+    # 2. Check FREESURFER_HOME
+    fs_home = os.environ.get("FREESURFER_HOME")
+    if fs_home:
+        p = Path(fs_home) / target
+        if p.is_file():
+            return p
+
+    # 3. Check common container paths
+    for candidate in _COMMON_FS_DIRS:
+        p = Path(candidate) / target
+        if p.is_file():
+            return p
+
+    raise FileNotFoundError(
+        f"Could not find {target}. Ensure FreeSurfer is installed or set FREESURFER_HOME. "
+        f"Searched: {freesurfer_dir}, $FREESURFER_HOME={fs_home}, {_COMMON_FS_DIRS}"
     )

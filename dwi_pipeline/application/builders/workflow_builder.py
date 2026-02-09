@@ -15,7 +15,7 @@ from ...infrastructure.interfaces.mrtrix import (
     MtNormalise, LabelConvert
 )
 from ...infrastructure.interfaces.fsl import Bet, Flirt
-from ...utils.constants import find_mrtrix_lut_dir, FS_COLOR_LUT, FS_DEFAULT_LUT, FS_A2009S_LUT
+from ...utils.constants import find_mrtrix_lut_dir, find_freesurfer_color_lut, FS_DEFAULT_LUT, FS_A2009S_LUT
 
 logger = logging.getLogger(__name__)
 
@@ -357,7 +357,7 @@ class WorkflowBuilder:
     ) -> None:
         """Adds parcellation conversion, registration, and connectome nodes for one atlas."""
         lut_dir = find_mrtrix_lut_dir()
-        fs_color_lut = str(lut_dir / FS_COLOR_LUT)
+        fs_color_lut = str(find_freesurfer_color_lut(self.config.freesurfer_dir))
         target_lut = str(lut_dir / lut_file)
 
         # 1. Convert aparc+aseg.mgz → NIfTI (preserve integer labels)
