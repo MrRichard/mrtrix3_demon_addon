@@ -71,8 +71,8 @@ class WorkflowBuilder:
         self.workflow.connect([
             (input_node, mrconvert, [
                 ('dwi_file', 'in_file'),
-                ('in_bval', 'fslgrad.0'),
-                ('in_bvec', 'fslgrad.1'),
+                ('in_bvec', 'in_bvec'),
+                ('in_bval', 'in_bval'),
                 ('in_json', 'json_sidecar')
             ])
         ])

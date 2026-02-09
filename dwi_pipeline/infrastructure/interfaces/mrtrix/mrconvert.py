@@ -31,12 +31,14 @@ class MRConvertInputSpec(CommandLineInputSpec):
         argstr="-nthreads %d",
         desc="Number of threads to use for computation."
     )
-    # DWI-specific options
-    fslgrad = traits.Tuple(
-        File(exists=True),
-        File(exists=True),
-        argstr="-fslgrad %s %s",
-        desc="Specify gradient table in FSL format (bvecs, bvals)."
+    # DWI-specific options (separate traits for Nipype workflow connections)
+    in_bvec = File(
+        exists=True,
+        desc="FSL bvecs file (used with -fslgrad)."
+    )
+    in_bval = File(
+        exists=True,
+        desc="FSL bvals file (used with -fslgrad)."
     )
     json_sidecar = File(
         exists=True,
@@ -76,7 +78,8 @@ class MRConvert(CommandLine):
     >>> mrconv = MRConvert()
     >>> mrconv.inputs.in_file = "dwi.nii.gz"
     >>> mrconv.inputs.out_file = "dwi.mif"
-    >>> mrconv.inputs.fslgrad = ("dwi.bvec", "dwi.bval")
+    >>> mrconv.inputs.in_bvec = "dwi.bvec"
+    >>> mrconv.inputs.in_bval = "dwi.bval"
     >>> mrconv.inputs.nthreads = 4
     >>> mrconv.cmdline
     'mrconvert -nthreads 4 -fslgrad dwi.bvec dwi.bval dwi.nii.gz dwi.mif'
@@ -86,6 +89,31 @@ class MRConvert(CommandLine):
     _cmd = "mrconvert"
     input_spec = MRConvertInputSpec
     output_spec = MRConvertOutputSpec
+
+    @property
+    def cmdline(self):
+        # Build command manually to handle -fslgrad bvec bval ordering
+        cmd = [self._cmd]
+
+        # Generic options
+        if self.inputs.nthreads > 1:
+            cmd.append(f"-nthreads {self.inputs.nthreads}")
+        if self.inputs.force:
+            cmd.append("-force")
+        if self.inputs.json_sidecar:
+            cmd.append(f"-json_import {self.inputs.json_sidecar}")
+        if self.inputs.datatype:
+            cmd.append(f"-datatype {self.inputs.datatype}")
+
+        # FSL gradient table: -fslgrad bvecs bvals
+        if self.inputs.in_bvec and self.inputs.in_bval:
+            cmd.append(f"-fslgrad {self.inputs.in_bvec} {self.inputs.in_bval}")
+
+        # Positional: in_file out_file
+        cmd.append(self.inputs.in_file)
+        cmd.append(self.inputs.out_file)
+
+        return " ".join(cmd)
 
     def _list_outputs(self):
         outputs = self.output_spec().get()
