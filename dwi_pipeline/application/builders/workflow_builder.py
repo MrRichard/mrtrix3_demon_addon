@@ -121,7 +121,7 @@ class WorkflowBuilder:
             ])
 
         biascorrect = Node(DWIBiasCorrect(
-            use_ants=True,
+            algorithm='ants',
             force=True,
             nthreads=self.config.n_threads
         ), name='biascorrect')

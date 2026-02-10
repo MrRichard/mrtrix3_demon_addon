@@ -31,16 +31,13 @@ class DWIBiasCorrectInputSpec(CommandLineInputSpec):
         argstr="-nthreads %d",
         desc="Number of threads to use for computation."
     )
-    # Algorithm options
-    use_ants = traits.Bool(
-        False,
-        argstr="-ants",
-        desc="Use ANTs N4BiasFieldCorrection (recommended)."
-    )
-    use_fsl = traits.Bool(
-        False,
-        argstr="-fsl",
-        desc="Use FSL FAST for bias field correction."
+    # Algorithm (positional sub-command in modern MRtrix3)
+    algorithm = traits.Enum(
+        "ants", "fsl",
+        argstr="%s",
+        position=0,
+        mandatory=True,
+        desc="Algorithm to use: 'ants' (ANTs N4BiasFieldCorrection) or 'fsl' (FSL FAST)."
     )
     # Algorithm-specific options
     ants_args = traits.Str(
@@ -92,11 +89,11 @@ class DWIBiasCorrect(CommandLine):
     >>> biascorrect.inputs.in_file = "dwi.mif"
     >>> biascorrect.inputs.out_file = "dwi_unbiased.mif"
     >>> biascorrect.inputs.bias = "bias.mif"
-    >>> biascorrect.inputs.use_ants = True
+    >>> biascorrect.inputs.algorithm = "ants"
     >>> biascorrect.inputs.mask = "mask.mif"
     >>> biascorrect.inputs.nthreads = 8
     >>> biascorrect.cmdline
-    'dwibiascorrect -nthreads 8 -ants dwi.mif dwi_unbiased.mif -bias bias.mif -mask mask.mif'
+    'dwibiascorrect ants -bias bias.mif -mask mask.mif -nthreads 8 dwi.mif dwi_unbiased.mif'
     >>> # Run this for real if MRtrix3 and ANTs are installed and in PATH
     >>> # biascorrect.run()
     """
