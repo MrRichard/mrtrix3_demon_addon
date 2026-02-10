@@ -17,6 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python3.12 -m pip install --upgrade pip
 
+ENV FSLDIR=/opt/fsl
+ENV PATH="${FSLDIR}/bin:${PATH}"
+ENV FSLOUTPUTTYPE=NIFTI_GZ
+
 WORKDIR /app
 COPY * /app
 COPY dwi_pipeline/ ./dwi_pipeline/
