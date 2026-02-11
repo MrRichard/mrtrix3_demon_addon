@@ -258,6 +258,14 @@ class WorkflowBuilder:
         extract_b0 = Node(DWIExtract(bzero=True, out_file="b0.mif"), name="extract_b0")
         self.workflow.connect([(self.nodes['biascorrect'], extract_b0, [('out_file', 'in_file')])])
 
+        # Convert b0 from MIF to NIfTI (FSL tools cannot read MIF)
+        b0_to_nii = Node(MRConvert(
+            out_file="b0.nii.gz",
+            force=True,
+            nthreads=self.config.n_threads
+        ), name='b0_to_nii')
+        self.workflow.connect([(extract_b0, b0_to_nii, [('out_file', 'in_file')])])
+
         # Register FS brain → DWI space (brain.mgz is already skull-stripped)
         flirt_brain = Node(Flirt(
             dof=6,
@@ -267,9 +275,10 @@ class WorkflowBuilder:
         ), name="flirt_brain_to_dwi")
         self.workflow.connect([
             (fs_brain_convert, flirt_brain, [('out_file', 'in_file')]),
-            (extract_b0, flirt_brain, [('out_file', 'reference')])
+            (b0_to_nii, flirt_brain, [('out_file', 'reference')])
         ])
         self.nodes['flirt_brain_to_dwi'] = flirt_brain
+        self.nodes['b0_nii'] = b0_to_nii
 
         # 5ttgen on registered brain (already skull-stripped → -premasked)
         tt5gen = Node(TT5Gen(
@@ -321,7 +330,7 @@ class WorkflowBuilder:
             connectome_name="connectome_FreeSurferDK.csv",
             tckgen_node=tckgen,
             tcksift2_node=tcksift2,
-            extract_b0_node=extract_b0
+            b0_nii_node=b0_to_nii
         )
 
         # --- Parcellation: FreeSurfer Destrieux atlas ---
@@ -333,7 +342,7 @@ class WorkflowBuilder:
                 connectome_name="connectome_Destrieux.csv",
                 tckgen_node=tckgen,
                 tcksift2_node=tcksift2,
-                extract_b0_node=extract_b0
+                b0_nii_node=b0_to_nii
             )
         else:
             logger.warning("Skipping Destrieux atlas — aparc.a2009s+aseg.mgz not found.")
@@ -375,7 +384,7 @@ class WorkflowBuilder:
         connectome_name: str,
         tckgen_node: Node,
         tcksift2_node: Node,
-        extract_b0_node: Node
+        b0_nii_node: Node
     ) -> None:
         """Adds parcellation conversion, registration, and connectome nodes for one atlas."""
         lut_dir = find_mrtrix_lut_dir()
@@ -392,11 +401,11 @@ class WorkflowBuilder:
         ), name=f'parc_convert_{atlas_name}')
         self.workflow.add_nodes([parc_convert])
 
-        # 2. labelconvert: FS label indices → sequential indices
+        # 2. labelconvert: FS label indices → sequential indices (NIfTI for FSL compatibility)
         labelconv = Node(LabelConvert(
             in_lut=fs_color_lut,
             out_lut=target_lut,
-            out_file=f"parcels_{atlas_name}.mif",
+            out_file=f"parcels_{atlas_name}.nii.gz",
             force=True,
             nthreads=self.config.n_threads
         ), name=f'labelconvert_{atlas_name}')
@@ -412,7 +421,7 @@ class WorkflowBuilder:
         ), name=f'flirt_parc_{atlas_name}')
         self.workflow.connect([
             (labelconv, flirt_parc, [('out_file', 'in_file')]),
-            (extract_b0_node, flirt_parc, [('out_file', 'reference')]),
+            (b0_nii_node, flirt_parc, [('out_file', 'reference')]),
             (self.nodes['flirt_brain_to_dwi'], flirt_parc, [('out_matrix_file', 'init')])
         ])
 

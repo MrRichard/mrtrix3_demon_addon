@@ -4,47 +4,41 @@ import os
 class DWI2ResponseInputSpec(CommandLineInputSpec):
     """
     Input Spec for MRtrix3 dwi2response command.
+
+    Modern MRtrix3 syntax: dwi2response algorithm input [output] [options]
+    The algorithm is a positional sub-command, not a flag.
     """
     in_file = File(
         exists=True,
         mandatory=True,
-        argstr="%s",
-        position=-3,
         desc="Input DWI image file (MIF format)."
     )
     algorithm = traits.Enum(
         "tournier", "dhollander", "fa", "tax", "manual",
-        argstr="%s",
-        position=-2,
+        mandatory=True,
         desc="Algorithm to use for response function estimation."
     )
     out_file = File(
         name_source="in_file",
         name_template="%s_response.txt",
         keep_extension=False,
-        position=-1,
-        argstr="%s",
-        desc="Output response function text file."
+        desc="Output response function text file (tournier/fa/tax/manual)."
     )
     # Generic options
     force = traits.Bool(
         False,
-        argstr="-force",
         desc="Overwrite existing output files."
     )
     nthreads = traits.Int(
         1,
-        argstr="-nthreads %d",
         desc="Number of threads to use for computation."
     )
     # Algorithm parameters
     mask = File(
         exists=True,
-        argstr="-mask %s",
         desc="Provide a brain mask."
     )
     voxels = File(
-        argstr="-voxels %s",
         desc="Output a mask containing the voxels selected by the algorithm."
     )
     # dhollander-specific options
@@ -52,21 +46,18 @@ class DWI2ResponseInputSpec(CommandLineInputSpec):
         name_source="in_file",
         name_template="%s_wm_response.txt",
         keep_extension=False,
-        argstr="%s",
         desc="White matter response function (dhollander)."
     )
     gm_file = File(
         name_source="in_file",
         name_template="%s_gm_response.txt",
         keep_extension=False,
-        argstr="%s",
         desc="Gray matter response function (dhollander)."
     )
     csf_file = File(
         name_source="in_file",
         name_template="%s_csf_response.txt",
         keep_extension=False,
-        argstr="%s",
         desc="CSF response function (dhollander)."
     )
 
@@ -102,45 +93,53 @@ class DWI2Response(CommandLine):
     >>> response.inputs.mask = "mask.mif"
     >>> response.inputs.nthreads = 4
     >>> response.cmdline
-    'dwi2response -nthreads 4 -mask mask.mif dwi.mif tournier response.txt'
+    'dwi2response tournier dwi.mif response.txt -force -nthreads 4 -mask mask.mif'
     >>> # For dhollander
-    >>> response.inputs.algorithm = "dhollander"
-    >>> response.inputs.wm_file = "wm_response.txt"
-    >>> response.inputs.gm_file = "gm_response.txt"
-    >>> response.inputs.csf_file = "csf_response.txt"
-    >>> response.cmdline
-    'dwi2response -nthreads 4 -mask mask.mif dwi.mif dhollander wm_response.txt gm_response.txt csf_response.txt'
+    >>> response2 = DWI2Response()
+    >>> Path("dwi.mif").touch()
+    >>> Path("mask.mif").touch()
+    >>> response2.inputs.in_file = "dwi.mif"
+    >>> response2.inputs.algorithm = "dhollander"
+    >>> response2.inputs.wm_file = "wm_response.txt"
+    >>> response2.inputs.gm_file = "gm_response.txt"
+    >>> response2.inputs.csf_file = "csf_response.txt"
+    >>> response2.inputs.mask = "mask.mif"
+    >>> response2.inputs.nthreads = 4
+    >>> response2.cmdline
+    'dwi2response dhollander dwi.mif wm_response.txt gm_response.txt csf_response.txt -force -nthreads 4 -mask mask.mif'
     >>> # Run this for real if MRtrix3 is installed and in PATH
     >>> # response.run()
     """
     _cmd = "dwi2response"
     input_spec = DWI2ResponseInputSpec
     output_spec = DWI2ResponseOutputSpec
-    
-    def _format_arg(self, name, spec, value):
-        if name in ['wm_file', 'gm_file', 'csf_file']:
-            # The dhollander response files are positional arguments
-            # We override the base class _format_arg to place them correctly
-            return value
-        return super(DWI2Response, self)._format_arg(name, spec, value)
 
     @property
     def cmdline(self):
-        cmd = super(DWI2Response, self).cmdline
+        """Build command line with algorithm as positional sub-command."""
+        cmd = [self._cmd]
+
+        # Algorithm (positional sub-command) and input file
+        cmd.append(self.inputs.algorithm)
+        cmd.append(self.inputs.in_file)
+
+        # Positional output file(s)
         if self.inputs.algorithm == 'dhollander':
-            # For dhollander, we need to explicitly list the wm/gm/csf output files
-            # in the correct order. The base cmdline generator might not handle this.
-            parts = cmd.split()
-            # Find the position of the algorithm
-            try:
-                idx = parts.index('dhollander')
-                # Rebuild command ensuring order
-                new_cmd = parts[:idx+1] + [self.inputs.wm_file, self.inputs.gm_file, self.inputs.csf_file]
-                return ' '.join(new_cmd)
-            except ValueError:
-                # Should not happen if algorithm is dhollander
-                return cmd
-        return cmd
+            cmd.extend([self.inputs.wm_file, self.inputs.gm_file, self.inputs.csf_file])
+        else:
+            cmd.append(self.inputs.out_file)
+
+        # Options
+        if self.inputs.force:
+            cmd.append("-force")
+        if self.inputs.nthreads > 1:
+            cmd.append(f"-nthreads {self.inputs.nthreads}")
+        if isdefined(self.inputs.mask):
+            cmd.append(f"-mask {self.inputs.mask}")
+        if isdefined(self.inputs.voxels):
+            cmd.append(f"-voxels {self.inputs.voxels}")
+
+        return " ".join(cmd)
 
 
     def _list_outputs(self):
