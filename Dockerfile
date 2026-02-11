@@ -15,7 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && cd / && rm -rf /Python-3.12.8 /Python-3.12.8.tgz \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python3.12 -m pip install --upgrade pip
+# Make Python 3.12 the default python3 so MRtrix3 scripts use it
+# (the base image's minimal Python may be missing codecs like cp437)
+RUN ln -sf /usr/local/bin/python3.12 /usr/local/bin/python3 \
+    && python3.12 -m pip install --upgrade pip
 
 ENV FSLDIR=/opt/fsl
 ENV PATH="${FSLDIR}/bin:${PATH}"
