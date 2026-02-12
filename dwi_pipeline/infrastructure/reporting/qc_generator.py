@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 _SLICE_FRACS = (0.25, 0.50, 0.75)
 
 
+def _ensure_3d(vol: np.ndarray) -> np.ndarray:
+    """Collapse a 4D volume to 3D by averaging along the 4th dimension."""
+    if vol.ndim == 4:
+        return vol.mean(axis=3)
+    return vol
+
+
 def _brain_extent(data: np.ndarray, axis: int):
     """Return (lo, hi) indices along *axis* that bracket non-zero voxels."""
     collapsed = np.any(data != 0, axis=tuple(i for i in range(data.ndim) if i != axis))
@@ -78,11 +85,11 @@ def generate_overlay_qc(
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    b0 = nib.load(b0_nii).get_fdata(dtype=np.float32).squeeze()
-    mask = nib.load(mask_nii).get_fdata(dtype=np.float32).squeeze()
+    b0 = _ensure_3d(nib.load(b0_nii).get_fdata(dtype=np.float32))
+    mask = _ensure_3d(nib.load(mask_nii).get_fdata(dtype=np.float32))
     fivett = nib.load(fivett_nii).get_fdata(dtype=np.float32)
-    brain = nib.load(brain_nii).get_fdata(dtype=np.float32).squeeze()
-    parc_dk = nib.load(parc_dk_nii).get_fdata(dtype=np.float32).squeeze()
+    brain = _ensure_3d(nib.load(brain_nii).get_fdata(dtype=np.float32))
+    parc_dk = _ensure_3d(nib.load(parc_dk_nii).get_fdata(dtype=np.float32))
 
     results: Dict[str, str] = {}
 
@@ -108,7 +115,7 @@ def generate_overlay_qc(
 
     # --- Destrieux parcellation QC ---
     if parc_destrieux_nii:
-        parc_dest = nib.load(parc_destrieux_nii).get_fdata(dtype=np.float32).squeeze()
+        parc_dest = _ensure_3d(nib.load(parc_destrieux_nii).get_fdata(dtype=np.float32))
         results["parcellation_destrieux_qc"] = str(
             _overlay_parcellation(b0, parc_dest, out / "parcellation_destrieux_qc.png", "Destrieux Atlas QC")
         )
@@ -240,7 +247,7 @@ def generate_tract_qc(
     out.mkdir(parents=True, exist_ok=True)
 
     b0_img = nib.load(b0_nii)
-    b0 = b0_img.get_fdata(dtype=np.float32).squeeze()
+    b0 = _ensure_3d(b0_img.get_fdata(dtype=np.float32))
     affine = b0_img.affine
     inv_affine = np.linalg.inv(affine)
 
