@@ -11,10 +11,11 @@ from ...domain.enums import DistortionStrategy
 from ...application.strategies import ProcessingStrategy, SingleShellStrategy, MultiShellStrategy
 from ...infrastructure.interfaces.mrtrix import (
     MRConvert, DWIDenoise, MRDeGibbs, DWIFslPreproc, DWIBiasCorrect, DWI2Mask,
-    DWIExtract, TT5Gen, TT5ToGMWMI, TCKGen, TckSift2, TCK2Connectome,
+    DWIExtract, TT5Gen, TT5ToGMWMI, TCKGen, TckSift2, TCK2Connectome, TCKEdit,
     MtNormalise, LabelConvert
 )
 from ...infrastructure.interfaces.fsl import Bet, Flirt
+from ...infrastructure.reporting import OverlayQC, TractQC
 from ...utils.constants import find_mrtrix_lut_dir, find_freesurfer_color_lut, FS_DEFAULT_LUT, FS_A2009S_LUT
 
 logger = logging.getLogger(__name__)
@@ -291,6 +292,7 @@ class WorkflowBuilder:
 
         tt5_to_gmwmi = Node(TT5ToGMWMI(force=True), name='5tt2gmwmi')
         self.workflow.connect([(tt5gen, tt5_to_gmwmi, [('out_file', 'in_file')])])
+        self.nodes['5ttgen'] = tt5gen
 
         # --- Tractography using normalised FOD ---
         tckgen = Node(TCKGen(
@@ -320,6 +322,7 @@ class WorkflowBuilder:
             (self.nodes['mtnormalise'], tcksift2, [('out_wm', 'in_fod')]),
             (tt5gen, tcksift2, [('out_file', 'act')])
         ])
+        self.nodes['tckgen'] = tckgen
 
         # --- Parcellation: FreeSurfer DK atlas ---
         self._add_parcellation_pipeline(
@@ -438,7 +441,116 @@ class WorkflowBuilder:
             (flirt_parc, tck2conn, [('out_file', 'in_parc')])
         ])
 
+        self.nodes[f'flirt_parc_{atlas_name}'] = flirt_parc
         self.nodes[f'tck2connectome_{atlas_name}'] = tck2conn
+
+    def add_qc_images(self) -> WorkflowBuilder:
+        """Adds QC image generation nodes to the workflow."""
+        logger.info("Adding QC image generation nodes...")
+
+        qc_out_dir = str(self.config.subject_output_dir / "qc_images")
+
+        # --- Convert .mif intermediates to NIfTI for QC ---
+        mrconvert_mask_nii = Node(MRConvert(
+            out_file="mask_qc.nii.gz",
+            force=True,
+            nthreads=self.config.n_threads
+        ), name='mrconvert_mask_nii')
+        self.workflow.connect([
+            (self.nodes['mask'], mrconvert_mask_nii, [('out_file', 'in_file')])
+        ])
+
+        mrconvert_5tt_nii = Node(MRConvert(
+            out_file="5tt_qc.nii.gz",
+            force=True,
+            nthreads=self.config.n_threads
+        ), name='mrconvert_5tt_nii')
+        self.workflow.connect([
+            (self.nodes['5ttgen'], mrconvert_5tt_nii, [('out_file', 'in_file')])
+        ])
+
+        # --- Subsample tractogram for visualisation ---
+        tckedit_qc = Node(TCKEdit(
+            out_file="tracts_qc_5k.tck",
+            number=5000,
+            force=True,
+            nthreads=self.config.n_threads
+        ), name='tckedit_qc')
+        self.workflow.connect([
+            (self.nodes['tckgen'], tckedit_qc, [('out_file', 'in_file')])
+        ])
+
+        # --- Overlay QC node ---
+        overlay_qc = Node(OverlayQC(
+            out_dir=qc_out_dir,
+        ), name='overlay_qc')
+        self.workflow.connect([
+            (self.nodes['b0_nii'], overlay_qc, [('out_file', 'b0_nii')]),
+            (mrconvert_mask_nii, overlay_qc, [('out_file', 'mask_nii')]),
+            (mrconvert_5tt_nii, overlay_qc, [('out_file', 'fivett_nii')]),
+            (self.nodes['flirt_brain_to_dwi'], overlay_qc, [('out_file', 'brain_nii')]),
+        ])
+
+        # Wire DK parcellation (always present)
+        flirt_parc_dk = self.nodes.get('flirt_parc_dk')
+        if flirt_parc_dk:
+            self.workflow.connect([
+                (flirt_parc_dk, overlay_qc, [('out_file', 'parc_dk_nii')])
+            ])
+
+        # Wire Destrieux parcellation (optional)
+        flirt_parc_dest = self.nodes.get('flirt_parc_destrieux')
+        if flirt_parc_dest:
+            self.workflow.connect([
+                (flirt_parc_dest, overlay_qc, [('out_file', 'parc_destrieux_nii')])
+            ])
+
+        # --- Tract QC node ---
+        tract_qc = Node(TractQC(
+            out_dir=qc_out_dir,
+        ), name='tract_qc')
+        self.workflow.connect([
+            (self.nodes['b0_nii'], tract_qc, [('out_file', 'b0_nii')]),
+            (tckedit_qc, tract_qc, [('out_file', 'tck_file')])
+        ])
+
+        # --- Sink QC images ---
+        datasink = self._get_or_create_datasink()
+        self.workflow.connect([
+            (overlay_qc, datasink, [
+                ('brain_mask_qc', 'qc_images.@brain_mask_qc'),
+                ('fivett_qc', 'qc_images.@fivett_qc'),
+                ('registration_qc', 'qc_images.@registration_qc'),
+                ('parcellation_dk_qc', 'qc_images.@parcellation_dk_qc'),
+            ]),
+            (tract_qc, datasink, [
+                ('tracts_sagittal_qc', 'qc_images.@tracts_sagittal_qc'),
+                ('tracts_coronal_qc', 'qc_images.@tracts_coronal_qc'),
+                ('tracts_axial_qc', 'qc_images.@tracts_axial_qc'),
+            ])
+        ])
+
+        if flirt_parc_dest:
+            self.workflow.connect([
+                (overlay_qc, datasink, [
+                    ('parcellation_destrieux_qc', 'qc_images.@parcellation_destrieux_qc'),
+                ])
+            ])
+
+        logger.info("QC image generation nodes added.")
+        return self
+
+    def _get_or_create_datasink(self) -> Node:
+        """Return the existing datasink node, or create one if not yet present."""
+        for node in self.workflow._graph.nodes():
+            if node.name == 'datasink':
+                return node
+        datasink = Node(DataSink(
+            base_directory=str(self.config.output_dir),
+            container=f"sub-{self.config.subject}_ses-{self.config.session}" if self.config.session else f"sub-{self.config.subject}"
+        ), name='datasink')
+        datasink.inputs.substitutions = []
+        return datasink
 
     def build(self) -> Workflow:
         """Returns the constructed workflow."""
@@ -464,4 +576,5 @@ class WorkflowDirector:
                 .add_fod_estimation()
                 .add_normalisation()
                 .add_tractography()
+                .add_qc_images()
                 .build())

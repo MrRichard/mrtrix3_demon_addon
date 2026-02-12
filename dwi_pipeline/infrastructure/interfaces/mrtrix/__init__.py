@@ -10,6 +10,7 @@ from .dwiextract import DWIExtract
 from .tckgen import TCKGen
 from .tcksift2 import TckSift2
 from .tck2connectome import TCK2Connectome
+from .tckedit import TCKEdit
 from .mtnormalise import MtNormalise
 from .labelconvert import LabelConvert
 
@@ -21,6 +22,6 @@ TT5ToGMWMI = _import(".5tt2gmwmi", __name__).TT5ToGMWMI
 __all__ = [
     "MRConvert", "DWIDenoise", "MRDeGibbs", "DWIFslPreproc",
     "DWIBiasCorrect", "DWI2Mask", "DWI2Response", "DWI2FOD",
-    "DWIExtract", "TCKGen", "TckSift2", "TCK2Connectome",
+    "DWIExtract", "TCKGen", "TckSift2", "TCK2Connectome", "TCKEdit",
     "MtNormalise", "LabelConvert", "TT5Gen", "TT5ToGMWMI",
 ]

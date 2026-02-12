@@ -11,6 +11,8 @@ nipype = "^1.8.6"
 numpy = "^1.26.4"
 pandas = "^2.2.2"
 scipy = "^1.14.0"
+nibabel = "^5.0"
+matplotlib = "^3.8"
 
 [tool.poetry.scripts]
 dwi-pipeline = "dwi_pipeline.__main__:main"
