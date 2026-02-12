@@ -312,7 +312,6 @@ class WorkflowBuilder:
 
         # SIFT2 filtering — also uses normalised FOD
         tcksift2 = Node(TckSift2(
-            term_number=1000000,
             force=True,
             nthreads=self.config.n_threads
         ), name='tcksift2')

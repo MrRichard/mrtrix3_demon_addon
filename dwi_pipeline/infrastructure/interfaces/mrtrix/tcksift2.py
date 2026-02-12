@@ -49,12 +49,7 @@ class TckSift2InputSpec(CommandLineInputSpec):
         argstr="-fd_scale_gm",
         desc="Scale FODs by the gray-matter volume fraction in each voxel."
     )
-    # Filtering options
-    term_number = traits.Int(
-        argstr="-term_number %d",
-        desc="Terminate after this number of streamlines have been selected."
-    )
-    
+
 class TckSift2OutputSpec(TraitedSpec):
     """
     Output Spec for MRtrix3 tcksift2 command.

@@ -15,10 +15,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && cd / && rm -rf /Python-3.12.8 /Python-3.12.8.tgz \
     && rm -rf /var/lib/apt/lists/*
 
-# Make Python 3.12 the default python3 so MRtrix3 scripts use it
-# (the base image's minimal Python may be missing codecs like cp437)
-RUN ln -sf /usr/local/bin/python3.12 /usr/local/bin/python3 \
-    && python3.12 -m pip install --upgrade pip
+# Keep Python 3.12 isolated — do NOT override python3, which MRtrix3
+# scripts depend on (the base image's Python 3.8 has codecs like cp437
+# that the from-source build may lack). Use python3.12 explicitly.
+RUN python3.12 -m pip install --upgrade pip
+
+# Patch MRtrix3's Python lib: replace cp437 codec (file-based, often
+# missing in minimal/from-source Pythons) with latin-1 (built-in,
+# always available). Both are single-byte → functionally identical
+# for parsing mrstats ASCII output.
+RUN grep -rl "cp437" /opt/mrtrix3/lib/ | xargs sed -i "s/'cp437'/'latin-1'/g" || true
 
 ENV FSLDIR=/opt/fsl
 ENV PATH="${FSLDIR}/bin:${PATH}"
