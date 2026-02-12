@@ -55,10 +55,25 @@ class TCK2ConnectomeInputSpec(CommandLineInputSpec):
         argstr="-zero_diagonal",
         desc="Set the diagonal of the matrix to zero."
     )
+    scale_length = traits.Bool(
+        False,
+        argstr="-scale_length",
+        desc="Scale each contribution to the connectome edge by the length of the streamline."
+    )
+    scale_invlength = traits.Bool(
+        False,
+        argstr="-scale_invlength",
+        desc="Scale each contribution to the connectome edge by the inverse of the streamline length."
+    )
+    scale_file = File(
+        exists=True,
+        argstr="-scale_file %s",
+        desc="Scale each contribution to the connectome edge according to the values in a vector file."
+    )
     stat_edge = traits.Enum(
-        "count", "mean_length", "invlength_invnodevolume",
+        "sum", "mean", "min", "max",
         argstr="-stat_edge %s",
-        desc="Statistic to compute for each edge."
+        desc="Statistic for combining per-streamline edge values."
     )
     scale_invnodevol = traits.Bool(
         False,
@@ -99,10 +114,9 @@ class TCK2Connectome(CommandLine):
     >>> connectome.inputs.out_file = "connectome.csv"
     >>> connectome.inputs.symmetric = True
     >>> connectome.inputs.zero_diagonal = True
-    >>> connectome.inputs.stat_edge = "count"
     >>> connectome.inputs.nthreads = 8
     >>> connectome.cmdline
-    'tck2connectome -nthreads 8 -symmetric -zero_diagonal -stat_edge count tracts.tck parc.mif connectome.csv'
+    'tck2connectome -nthreads 8 -symmetric -zero_diagonal tracts.tck parc.mif connectome.csv'
     """
     _cmd = "tck2connectome"
     input_spec = TCK2ConnectomeInputSpec

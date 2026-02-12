@@ -33,7 +33,7 @@ class TCKGenInputSpec(CommandLineInputSpec):
     )
     # Algorithm options
     algorithm = traits.Enum(
-        "iFOD2", "FACT", "iFOD1", "Nulldist", "SD_Stream", "Tensor_Det", "Tensor_Prob",
+        "iFOD2", "FACT", "iFOD1", "Nulldist1", "Nulldist2", "SD_Stream", "Seedtest", "Tensor_Det", "Tensor_Prob",
         argstr="-algorithm %s",
         default="iFOD2",
         desc="Tractography algorithm to use."

@@ -31,19 +31,10 @@ class DWI2MaskInputSpec(CommandLineInputSpec):
         argstr="-nthreads %d",
         desc="Number of threads to use for computation."
     )
-    # Algorithm options
-    algorithm = traits.Enum(
-        "dwi.bzero", "fsl.bet", "fsl.fast",
-        argstr="-algorithm %s",
-        desc="Specify the algorithm to use for brain masking."
-    )
-    bzero_scale = traits.Float(
-        argstr="-bzero_scale %f",
-        desc="Scale factor to apply to the b-zero image before masking."
-    )
-    fsl_bet_options = traits.Str(
-        argstr="-fsl_bet_options '%s'",
-        desc="Additional options to pass to FSL's bet command."
+    # DWI mask options
+    clean_scale = traits.Float(
+        argstr="-clean_scale %f",
+        desc="Set the scale factor for the mask clean-up operation."
     )
 
 class DWI2MaskOutputSpec(TraitedSpec):

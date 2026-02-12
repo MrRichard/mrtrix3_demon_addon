@@ -49,9 +49,10 @@ class DWIDenoiseInputSpec(CommandLineInputSpec):
         argstr="-extent %d,%d,%d",
         desc="Specify the extent of the local PCA neighbourhood. (default: 5,5,5)"
     )
-    min_chan = traits.Int(
-        argstr="-min_chan %d",
-        desc="Minimum number of channels (non-zero b-values) to perform denoising. (default: 3)"
+    estimator = traits.Enum(
+        "Exp1", "Exp2",
+        argstr="-estimator %s",
+        desc="Select the noise level estimator."
     )
     debug = traits.Bool(
         False,

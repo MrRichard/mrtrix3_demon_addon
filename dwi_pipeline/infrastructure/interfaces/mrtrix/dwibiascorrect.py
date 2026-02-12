@@ -39,15 +39,6 @@ class DWIBiasCorrectInputSpec(CommandLineInputSpec):
         mandatory=True,
         desc="Algorithm to use: 'ants' (ANTs N4BiasFieldCorrection) or 'fsl' (FSL FAST)."
     )
-    # Algorithm-specific options
-    ants_args = traits.Str(
-        argstr='-ants_args "%s"',
-        desc="Additional arguments to pass to ANTs N4BiasFieldCorrection command."
-    )
-    fsl_args = traits.Str(
-        argstr='-fsl_args "%s"',
-        desc="Additional arguments to pass to FSL FAST command."
-    )
     bias = File(
         name_source="in_file",
         name_template="%s_biasfield.mif",

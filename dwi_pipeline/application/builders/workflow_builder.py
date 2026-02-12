@@ -155,7 +155,7 @@ class WorkflowBuilder:
             preproc.inputs.rpe_option = "pair"
         elif strategy == DistortionStrategy.FIELDMAP:
             logger.info("Configuring dwifslpreproc for FIELDMAP.")
-            preproc.inputs.rpe_option = "se_epi"
+            preproc.inputs.rpe_option = "header"
         else: # NONE
             logger.warning("No distortion correction method specified. Using eddy only.")
             preproc.inputs.rpe_option = "none"
@@ -428,7 +428,6 @@ class WorkflowBuilder:
         tck2conn = Node(TCK2Connectome(
             symmetric=True,
             zero_diagonal=True,
-            stat_edge="count",
             out_file=connectome_name,
             force=True,
             nthreads=self.config.n_threads

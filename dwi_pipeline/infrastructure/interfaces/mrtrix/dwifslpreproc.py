@@ -21,7 +21,7 @@ class DWIFslPreprocInputSpec(CommandLineInputSpec):
         desc="Output preprocessed DWI image file."
     )
     rpe_option = traits.Enum(
-        "none", "pair", "all", "se_epi",
+        "none", "pair", "all", "header",
         argstr="-rpe_%s",
         desc="Reverse Phase-Encoding option."
     )
@@ -62,11 +62,6 @@ class DWIFslPreprocInputSpec(CommandLineInputSpec):
         exists=True,
         argstr="-se_epi %s",
         desc="Spin-echo EPI image for distortion correction."
-    )
-    # Other FSL options
-    fsl_path = traits.Str(
-        argstr="-fsl_path %s",
-        desc="Specify the path to the FSL installation."
     )
     topup_options = traits.Str(
         argstr="-topup_options '%s'",

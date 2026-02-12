@@ -27,7 +27,7 @@ class DWIExtractInputSpec(CommandLineInputSpec):
     )
     nobzero = traits.Bool(
         False,
-        argstr="-nobzero",
+        argstr="-no_bzero",
         desc="Extract all non-b-zero images."
     )
     
