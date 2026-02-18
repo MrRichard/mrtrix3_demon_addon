@@ -202,28 +202,44 @@ def _overlay_5tt(b0: np.ndarray, fivett: np.ndarray, path: Path) -> Path:
 
 
 def _overlay_contour(b0: np.ndarray, brain: np.ndarray, path: Path, title: str) -> Path:
-    """Overlay brain edges as contours on b0."""
-    from scipy.ndimage import zoom
+    """
+    Overlay brain edges as contours on b0 in all three planes.
 
-    slices = _pick_slices(b0, axis=2)
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4), facecolor="black")
-    for ax, idx in zip(axes, slices):
-        bg = _get_axial_slice(b0, idx)
-        ov = _get_axial_slice(brain, idx)
-        ax.imshow(bg, cmap="gray", interpolation="nearest")
+    Produces a 3-row × 3-column grid:
+      Row 0: axial slices    (axis=2)
+      Row 1: coronal slices  (axis=1)
+      Row 2: sagittal slices (axis=0)
+    """
+    plane_configs = [
+        ("Axial",    2, _get_axial_slice),
+        ("Coronal",  1, _get_coronal_slice),
+        ("Sagittal", 0, _get_sagittal_slice),
+    ]
 
-        # Resize ov to match background dimensions if needed
-        if ov.shape != bg.shape:
-            # Calculate zoom factors for resizing
-            zoom_factors = (bg.shape[0] / ov.shape[0], bg.shape[1] / ov.shape[1])
-            ov = zoom(ov, zoom_factors, order=1)  # Linear interpolation
+    fig, axes = plt.subplots(3, 3, figsize=(12, 12), facecolor="black")
+    fig.subplots_adjust(hspace=0.05, wspace=0.05)
 
-        # Threshold brain volume and draw contour
-        thresh = ov > (np.percentile(ov[ov > 0], 10) if np.any(ov > 0) else 0)
-        ax.contour(thresh.astype(float), levels=[0.5], colors=["cyan"], linewidths=0.8)
-        ax.set_title(f"z={idx}", color="white", fontsize=9)
-        ax.axis("off")
-    fig.suptitle(title, color="white", fontsize=11)
+    for row, (plane_label, axis, get_slice_fn) in enumerate(plane_configs):
+        slices = _pick_slices(b0, axis=axis)
+        for col, idx in enumerate(slices):
+            ax = axes[row, col]
+            bg = get_slice_fn(b0, idx)
+            ov = get_slice_fn(brain, idx)
+
+            ax.imshow(bg, cmap="gray", interpolation="nearest")
+
+            if ov.shape != bg.shape:
+                zoom_factors = (bg.shape[0] / ov.shape[0], bg.shape[1] / ov.shape[1])
+                ov = zoom(ov, zoom_factors, order=1)
+
+            thresh = ov > (np.percentile(ov[ov > 0], 10) if np.any(ov > 0) else 0)
+            ax.contour(thresh.astype(float), levels=[0.5], colors=["cyan"], linewidths=0.8)
+
+            label = f"{plane_label} [{axis}]={idx}" if col == 0 else f"[{axis}]={idx}"
+            ax.set_title(label, color="white", fontsize=8)
+            ax.axis("off")
+
+    fig.suptitle(title, color="white", fontsize=12)
     _save_fig(fig, path)
     return path
 
