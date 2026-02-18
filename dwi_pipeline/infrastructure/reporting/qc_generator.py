@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
 import nibabel as nib
+from scipy.ndimage import zoom
 
 logger = logging.getLogger(__name__)
 
@@ -125,12 +126,21 @@ def generate_overlay_qc(
 
 def _overlay_mask(b0: np.ndarray, mask: np.ndarray, path: Path, title: str) -> Path:
     """Overlay binary mask as red contour on b0."""
+    from scipy.ndimage import zoom
+
     slices = _pick_slices(b0, axis=2)
     fig, axes = plt.subplots(1, 3, figsize=(12, 4), facecolor="black")
     for ax, idx in zip(axes, slices):
         bg = _get_axial_slice(b0, idx)
         ov = _get_axial_slice(mask, idx)
         ax.imshow(bg, cmap="gray", interpolation="nearest")
+
+        # Resize ov to match background dimensions if needed
+        if ov.shape != bg.shape:
+            # Calculate zoom factors for resizing
+            zoom_factors = (bg.shape[0] / ov.shape[0], bg.shape[1] / ov.shape[1])
+            ov = zoom(ov, zoom_factors, order=1)  # Linear interpolation
+
         ax.contour(ov, levels=[0.5], colors=["red"], linewidths=0.8)
         ax.set_title(f"z={idx}", color="white", fontsize=9)
         ax.axis("off")
@@ -146,6 +156,8 @@ def _overlay_5tt(b0: np.ndarray, fivett: np.ndarray, path: Path) -> Path:
     5TT volumes: 0=cortGM, 1=subcortGM, 2=WM, 3=CSF, 4=pathological
     Color mapping: GM=red, subcort=orange, WM=blue, CSF=green
     """
+    from scipy.ndimage import zoom
+
     slices = _pick_slices(b0, axis=2)
     fig, axes = plt.subplots(1, 3, figsize=(12, 4), facecolor="black")
 
@@ -166,6 +178,13 @@ def _overlay_5tt(b0: np.ndarray, fivett: np.ndarray, path: Path) -> Path:
             if tissue_idx >= fivett.shape[3]:
                 break
             tissue = _get_axial_slice(fivett[:, :, :, tissue_idx], idx)
+
+            # Resize tissue to match background dimensions if needed
+            if tissue.shape != (h, w):
+                # Calculate zoom factors for resizing
+                zoom_factors = (h / tissue.shape[0], w / tissue.shape[1])
+                tissue = zoom(tissue, zoom_factors, order=1)  # Linear interpolation
+
             for c in range(3):
                 rgb[:, :, c] += tissue * color[c]
         rgb = np.clip(rgb, 0, 1)
@@ -184,12 +203,21 @@ def _overlay_5tt(b0: np.ndarray, fivett: np.ndarray, path: Path) -> Path:
 
 def _overlay_contour(b0: np.ndarray, brain: np.ndarray, path: Path, title: str) -> Path:
     """Overlay brain edges as contours on b0."""
+    from scipy.ndimage import zoom
+
     slices = _pick_slices(b0, axis=2)
     fig, axes = plt.subplots(1, 3, figsize=(12, 4), facecolor="black")
     for ax, idx in zip(axes, slices):
         bg = _get_axial_slice(b0, idx)
         ov = _get_axial_slice(brain, idx)
         ax.imshow(bg, cmap="gray", interpolation="nearest")
+
+        # Resize ov to match background dimensions if needed
+        if ov.shape != bg.shape:
+            # Calculate zoom factors for resizing
+            zoom_factors = (bg.shape[0] / ov.shape[0], bg.shape[1] / ov.shape[1])
+            ov = zoom(ov, zoom_factors, order=1)  # Linear interpolation
+
         # Threshold brain volume and draw contour
         thresh = ov > (np.percentile(ov[ov > 0], 10) if np.any(ov > 0) else 0)
         ax.contour(thresh.astype(float), levels=[0.5], colors=["cyan"], linewidths=0.8)
@@ -202,6 +230,8 @@ def _overlay_contour(b0: np.ndarray, brain: np.ndarray, path: Path, title: str) 
 
 def _overlay_parcellation(b0: np.ndarray, parc: np.ndarray, path: Path, title: str) -> Path:
     """Overlay parcellation labels as semi-transparent discrete colors on b0."""
+    from scipy.ndimage import zoom
+
     slices = _pick_slices(b0, axis=2)
     fig, axes = plt.subplots(1, 3, figsize=(12, 4), facecolor="black")
 
@@ -216,8 +246,14 @@ def _overlay_parcellation(b0: np.ndarray, parc: np.ndarray, path: Path, title: s
         ov = _get_axial_slice(parc, idx).astype(int)
         ax.imshow(bg, cmap="gray", interpolation="nearest")
 
+        # Resize ov to match background dimensions if needed
+        if ov.shape != bg.shape:
+            # Calculate zoom factors for resizing
+            zoom_factors = (bg.shape[0] / ov.shape[0], bg.shape[1] / ov.shape[1])
+            ov = zoom(ov, zoom_factors, order=0)  # Nearest neighbor for labels
+
         # Map labels to RGB
-        rgb = label_colors[np.clip(ov, 0, len(label_colors) - 1)]
+        rgb = label_colors[np.clip(ov.astype(int), 0, len(label_colors) - 1)]
         alpha = (ov > 0).astype(float) * 0.45
         rgba = np.dstack([rgb, alpha])
         ax.imshow(rgba, interpolation="nearest")
