@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import matplotlib
 matplotlib.use("Agg")
@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
 import nibabel as nib
+from nibabel.processing import resample_from_to
 from scipy.ndimage import zoom
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,11 @@ def _ensure_3d(vol: np.ndarray) -> np.ndarray:
     if vol.ndim == 4:
         return vol.mean(axis=3)
     return vol
+
+
+def _get_zooms(affine: np.ndarray) -> np.ndarray:
+    """Extract voxel sizes (mm) from a NIfTI affine matrix."""
+    return np.sqrt((affine[:3, :3] ** 2).sum(axis=0))
 
 
 def _brain_extent(data: np.ndarray, axis: int):
@@ -59,6 +65,28 @@ def _get_coronal_slice(vol: np.ndarray, idx: int) -> np.ndarray:
     return np.rot90(vol[:, idx, :])
 
 
+def _slice_aspect(zooms: np.ndarray, axis: int) -> float:
+    """
+    Compute the correct imshow aspect ratio for a slice along *axis*.
+
+    After rot90, the displayed image rows correspond to the 'z-like' dimension
+    and columns correspond to the 'x-like' or 'y-like' dimension.  The aspect
+    ratio (height-per-width) must reflect the physical voxel sizes so that the
+    brain is not squashed or stretched.
+
+    axis=2 (axial):    slice in (X,Y), after rot90 → (Y,X). aspect = vox_y/vox_x
+    axis=1 (coronal):  slice in (X,Z), after rot90 → (Z,X). aspect = vox_z/vox_x
+    axis=0 (sagittal): slice in (Y,Z), after rot90 → (Z,Y). aspect = vox_z/vox_y
+    """
+    vx, vy, vz = zooms[0], zooms[1], zooms[2]
+    if axis == 2:
+        return float(vy / vx)
+    elif axis == 1:
+        return float(vz / vx)
+    else:  # axis == 0
+        return float(vz / vy)
+
+
 def _save_fig(fig, path: Path):
     fig.savefig(str(path), dpi=150, bbox_inches="tight", facecolor="black")
     plt.close(fig)
@@ -86,9 +114,25 @@ def generate_overlay_qc(
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    b0 = _ensure_3d(nib.load(b0_nii).get_fdata(dtype=np.float32))
+    b0_img = nib.load(b0_nii)
+    b0 = _ensure_3d(b0_img.get_fdata(dtype=np.float32))
+    zooms = _get_zooms(b0_img.affine)
+
     mask = _ensure_3d(nib.load(mask_nii).get_fdata(dtype=np.float32))
-    fivett = nib.load(fivett_nii).get_fdata(dtype=np.float32)
+
+    # Resample 5TT from T1w space to DWI space so overlays align correctly.
+    fivett_img = nib.load(fivett_nii)
+    if fivett_img.shape[:3] != b0_img.shape[:3] or not np.allclose(
+        fivett_img.affine, b0_img.affine, atol=1e-3
+    ):
+        logger.info(
+            "Resampling 5TT from %s to DWI space %s",
+            fivett_img.shape[:3],
+            b0_img.shape[:3],
+        )
+        fivett_img = resample_from_to(fivett_img, b0_img, order=1)
+    fivett = fivett_img.get_fdata(dtype=np.float32)
+
     brain = _ensure_3d(nib.load(brain_nii).get_fdata(dtype=np.float32))
     parc_dk = _ensure_3d(nib.load(parc_dk_nii).get_fdata(dtype=np.float32))
 
@@ -96,50 +140,47 @@ def generate_overlay_qc(
 
     # --- Brain mask QC ---
     results["brain_mask_qc"] = str(
-        _overlay_mask(b0, mask, out / "brain_mask_qc.png", "Brain Mask QC")
+        _overlay_mask(b0, mask, zooms, out / "brain_mask_qc.png", "Brain Mask QC")
     )
 
     # --- 5TT tissue segmentation QC ---
     results["5tt_qc"] = str(
-        _overlay_5tt(b0, fivett, out / "5tt_qc.png")
+        _overlay_5tt(b0, fivett, zooms, out / "5tt_qc.png")
     )
 
     # --- Registration QC ---
     results["registration_qc"] = str(
-        _overlay_contour(b0, brain, out / "registration_qc.png", "Registration QC (brain → DWI)")
+        _overlay_contour(b0, brain, zooms, out / "registration_qc.png", "Registration QC (brain → DWI)")
     )
 
     # --- DK parcellation QC ---
     results["parcellation_dk_qc"] = str(
-        _overlay_parcellation(b0, parc_dk, out / "parcellation_dk_qc.png", "DK Atlas QC")
+        _overlay_parcellation(b0, parc_dk, zooms, out / "parcellation_dk_qc.png", "DK Atlas QC")
     )
 
     # --- Destrieux parcellation QC ---
     if parc_destrieux_nii:
         parc_dest = _ensure_3d(nib.load(parc_destrieux_nii).get_fdata(dtype=np.float32))
         results["parcellation_destrieux_qc"] = str(
-            _overlay_parcellation(b0, parc_dest, out / "parcellation_destrieux_qc.png", "Destrieux Atlas QC")
+            _overlay_parcellation(b0, parc_dest, zooms, out / "parcellation_destrieux_qc.png", "Destrieux Atlas QC")
         )
 
     return results
 
 
-def _overlay_mask(b0: np.ndarray, mask: np.ndarray, path: Path, title: str) -> Path:
+def _overlay_mask(b0: np.ndarray, mask: np.ndarray, zooms: np.ndarray, path: Path, title: str) -> Path:
     """Overlay binary mask as red contour on b0."""
-    from scipy.ndimage import zoom
-
+    aspect = _slice_aspect(zooms, axis=2)
     slices = _pick_slices(b0, axis=2)
     fig, axes = plt.subplots(1, 3, figsize=(12, 4), facecolor="black")
     for ax, idx in zip(axes, slices):
         bg = _get_axial_slice(b0, idx)
         ov = _get_axial_slice(mask, idx)
-        ax.imshow(bg, cmap="gray", interpolation="nearest")
+        ax.imshow(bg, cmap="gray", interpolation="nearest", aspect=aspect)
 
-        # Resize ov to match background dimensions if needed
         if ov.shape != bg.shape:
-            # Calculate zoom factors for resizing
             zoom_factors = (bg.shape[0] / ov.shape[0], bg.shape[1] / ov.shape[1])
-            ov = zoom(ov, zoom_factors, order=1)  # Linear interpolation
+            ov = zoom(ov, zoom_factors, order=1)
 
         ax.contour(ov, levels=[0.5], colors=["red"], linewidths=0.8)
         ax.set_title(f"z={idx}", color="white", fontsize=9)
@@ -149,21 +190,20 @@ def _overlay_mask(b0: np.ndarray, mask: np.ndarray, path: Path, title: str) -> P
     return path
 
 
-def _overlay_5tt(b0: np.ndarray, fivett: np.ndarray, path: Path) -> Path:
+def _overlay_5tt(b0: np.ndarray, fivett: np.ndarray, zooms: np.ndarray, path: Path) -> Path:
     """
     Overlay 5TT tissue types on b0.
 
     5TT volumes: 0=cortGM, 1=subcortGM, 2=WM, 3=CSF, 4=pathological
     Color mapping: GM=red, subcort=orange, WM=blue, CSF=green
     """
-    from scipy.ndimage import zoom
-
+    aspect = _slice_aspect(zooms, axis=2)
     slices = _pick_slices(b0, axis=2)
     fig, axes = plt.subplots(1, 3, figsize=(12, 4), facecolor="black")
 
     for ax, idx in zip(axes, slices):
         bg = _get_axial_slice(b0, idx)
-        ax.imshow(bg, cmap="gray", interpolation="nearest")
+        ax.imshow(bg, cmap="gray", interpolation="nearest", aspect=aspect)
 
         # Build composite RGB overlay from tissue volumes
         h, w = bg.shape
@@ -179,20 +219,17 @@ def _overlay_5tt(b0: np.ndarray, fivett: np.ndarray, path: Path) -> Path:
                 break
             tissue = _get_axial_slice(fivett[:, :, :, tissue_idx], idx)
 
-            # Resize tissue to match background dimensions if needed
             if tissue.shape != (h, w):
-                # Calculate zoom factors for resizing
                 zoom_factors = (h / tissue.shape[0], w / tissue.shape[1])
-                tissue = zoom(tissue, zoom_factors, order=1)  # Linear interpolation
+                tissue = zoom(tissue, zoom_factors, order=1)
 
             for c in range(3):
                 rgb[:, :, c] += tissue * color[c]
         rgb = np.clip(rgb, 0, 1)
 
-        # Only show where there is tissue
         alpha = np.clip(rgb.sum(axis=2), 0, 1)
         rgba = np.dstack([rgb, alpha * 0.5])
-        ax.imshow(rgba, interpolation="nearest")
+        ax.imshow(rgba, interpolation="nearest", aspect=aspect)
         ax.set_title(f"z={idx}", color="white", fontsize=9)
         ax.axis("off")
 
@@ -201,7 +238,7 @@ def _overlay_5tt(b0: np.ndarray, fivett: np.ndarray, path: Path) -> Path:
     return path
 
 
-def _overlay_contour(b0: np.ndarray, brain: np.ndarray, path: Path, title: str) -> Path:
+def _overlay_contour(b0: np.ndarray, brain: np.ndarray, zooms: np.ndarray, path: Path, title: str) -> Path:
     """
     Overlay brain edges as contours on b0 in all three planes.
 
@@ -220,13 +257,14 @@ def _overlay_contour(b0: np.ndarray, brain: np.ndarray, path: Path, title: str) 
     fig.subplots_adjust(hspace=0.05, wspace=0.05)
 
     for row, (plane_label, axis, get_slice_fn) in enumerate(plane_configs):
+        aspect = _slice_aspect(zooms, axis=axis)
         slices = _pick_slices(b0, axis=axis)
         for col, idx in enumerate(slices):
             ax = axes[row, col]
             bg = get_slice_fn(b0, idx)
             ov = get_slice_fn(brain, idx)
 
-            ax.imshow(bg, cmap="gray", interpolation="nearest")
+            ax.imshow(bg, cmap="gray", interpolation="nearest", aspect=aspect)
 
             if ov.shape != bg.shape:
                 zoom_factors = (bg.shape[0] / ov.shape[0], bg.shape[1] / ov.shape[1])
@@ -244,10 +282,9 @@ def _overlay_contour(b0: np.ndarray, brain: np.ndarray, path: Path, title: str) 
     return path
 
 
-def _overlay_parcellation(b0: np.ndarray, parc: np.ndarray, path: Path, title: str) -> Path:
+def _overlay_parcellation(b0: np.ndarray, parc: np.ndarray, zooms: np.ndarray, path: Path, title: str) -> Path:
     """Overlay parcellation labels as semi-transparent discrete colors on b0."""
-    from scipy.ndimage import zoom
-
+    aspect = _slice_aspect(zooms, axis=2)
     slices = _pick_slices(b0, axis=2)
     fig, axes = plt.subplots(1, 3, figsize=(12, 4), facecolor="black")
 
@@ -260,19 +297,16 @@ def _overlay_parcellation(b0: np.ndarray, parc: np.ndarray, path: Path, title: s
     for ax, idx in zip(axes, slices):
         bg = _get_axial_slice(b0, idx)
         ov = _get_axial_slice(parc, idx).astype(int)
-        ax.imshow(bg, cmap="gray", interpolation="nearest")
+        ax.imshow(bg, cmap="gray", interpolation="nearest", aspect=aspect)
 
-        # Resize ov to match background dimensions if needed
         if ov.shape != bg.shape:
-            # Calculate zoom factors for resizing
             zoom_factors = (bg.shape[0] / ov.shape[0], bg.shape[1] / ov.shape[1])
             ov = zoom(ov, zoom_factors, order=0)  # Nearest neighbor for labels
 
-        # Map labels to RGB
         rgb = label_colors[np.clip(ov.astype(int), 0, len(label_colors) - 1)]
         alpha = (ov > 0).astype(float) * 0.45
         rgba = np.dstack([rgb, alpha])
-        ax.imshow(rgba, interpolation="nearest")
+        ax.imshow(rgba, interpolation="nearest", aspect=aspect)
         ax.set_title(f"z={idx}", color="white", fontsize=9)
         ax.axis("off")
 
@@ -302,6 +336,7 @@ def generate_tract_qc(
     b0 = _ensure_3d(b0_img.get_fdata(dtype=np.float32))
     affine = b0_img.affine
     inv_affine = np.linalg.inv(affine)
+    zooms = _get_zooms(affine)
 
     # Load streamlines
     tck = nib.streamlines.load(tck_file)
@@ -318,6 +353,7 @@ def generate_tract_qc(
     for plane_name, axis, fname in planes:
         lo, hi = _brain_extent(b0, axis)
         mid_idx = (lo + hi) // 2
+        aspect = _slice_aspect(zooms, axis=axis)
 
         fig, ax = plt.subplots(1, 1, figsize=(6, 6), facecolor="black")
 
@@ -328,7 +364,7 @@ def generate_tract_qc(
             bg = _get_coronal_slice(b0, mid_idx)
         else:
             bg = _get_axial_slice(b0, mid_idx)
-        ax.imshow(bg, cmap="gray", interpolation="nearest", aspect="equal")
+        ax.imshow(bg, cmap="gray", interpolation="nearest", aspect=aspect)
 
         # Project streamlines onto the plane
         _project_streamlines(ax, streamlines, inv_affine, b0.shape, axis, mid_idx)
@@ -348,13 +384,12 @@ def _project_streamlines(
     vol_shape: tuple,
     axis: int,
     mid_idx: int,
-    slab_width: int = 3,
+    slab_width: int = 5,
 ):
     """
     Project streamline segments near mid_idx onto the display plane.
 
-    Only segments within ±slab_width voxels of the mid-plane are drawn, to keep
-    the image from being overwhelmed.
+    Only segments within ±slab_width voxels of the mid-plane are drawn.
     """
     # Map axis → which image dimensions to use for x/y
     # After rot90, the display is (rows, cols) so we need to map voxel coords
@@ -383,4 +418,4 @@ def _project_streamlines(
         display_x = vx
         display_y = max_dim1 - vy
 
-        ax.plot(display_x, display_y, color="orange", alpha=0.03, linewidth=0.3)
+        ax.plot(display_x, display_y, color="orange", alpha=0.3, linewidth=0.8)
