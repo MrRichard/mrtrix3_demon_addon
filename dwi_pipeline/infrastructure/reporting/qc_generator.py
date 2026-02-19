@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
+from matplotlib.collections import LineCollection
 import numpy as np
 import nibabel as nib
 from nibabel.processing import resample_from_to
@@ -228,7 +228,7 @@ def _overlay_5tt(b0: np.ndarray, fivett: np.ndarray, zooms: np.ndarray, path: Pa
         rgb = np.clip(rgb, 0, 1)
 
         alpha = np.clip(rgb.sum(axis=2), 0, 1)
-        rgba = np.dstack([rgb, alpha * 0.5])
+        rgba = np.dstack([rgb, alpha * 0.25])
         ax.imshow(rgba, interpolation="nearest", aspect=aspect)
         ax.set_title(f"z={idx}", color="white", fontsize=9)
         ax.axis("off")
@@ -385,37 +385,59 @@ def _project_streamlines(
     axis: int,
     mid_idx: int,
     slab_width: int = 5,
+    max_streamlines: int = 50_000,
 ):
     """
-    Project streamline segments near mid_idx onto the display plane.
+    Project streamline segments near mid_idx onto the display plane with
+    RGB directional coloring (|Δx|→R, |Δy|→G, |Δz|→B in world/RAS space).
 
     Only segments within ±slab_width voxels of the mid-plane are drawn.
+    Streamlines are randomly subsampled to max_streamlines for performance.
     """
-    # Map axis → which image dimensions to use for x/y
-    # After rot90, the display is (rows, cols) so we need to map voxel coords
-    # to the rotated display space
-    for sl in streamlines:
-        # Convert world coords to voxel coords
-        pts = nib.affines.apply_affine(inv_affine, sl)
+    dims = [d for d in range(3) if d != axis]
+    max_dim1 = vol_shape[dims[1]] - 1
 
-        # Keep only segments near the mid-plane
-        near_mask = np.abs(pts[:, axis] - mid_idx) < slab_width
+    # Random subsample to keep rendering fast
+    rng = np.random.RandomState(0)
+    sl_list = list(streamlines)
+    if len(sl_list) > max_streamlines:
+        idx = rng.choice(len(sl_list), size=max_streamlines, replace=False)
+        sl_list = [sl_list[i] for i in idx]
+
+    all_segments = []
+    all_colors = []
+
+    for sl in sl_list:
+        # Convert world coords to voxel coords for display positioning
+        pts_vox = nib.affines.apply_affine(inv_affine, sl)
+
+        # Keep only points near the mid-plane
+        near_mask = np.abs(pts_vox[:, axis] - mid_idx) < slab_width
         if not np.any(near_mask):
             continue
 
-        # Get the two non-axis dimensions
-        dims = [d for d in range(3) if d != axis]
+        pts_world_near = sl[near_mask]       # world coords for direction colour
+        pts_vox_near = pts_vox[near_mask]    # voxel coords for display position
 
-        # Extract x/y in voxel space
-        vx = pts[near_mask, dims[0]]
-        vy = pts[near_mask, dims[1]]
+        if len(pts_world_near) < 2:
+            continue
 
-        # Match rot90 transform: display_row = max_col - col, display_col = row
-        # For axial (axis=2): dims=[0,1], rot90 maps (x,y) → (max_y - y, x)
-        # For sagittal (axis=0): dims=[1,2], rot90 maps (y,z) → (max_z - z, y)
-        # For coronal (axis=1): dims=[0,2], rot90 maps (x,z) → (max_z - z, x)
-        max_dim1 = vol_shape[dims[1]] - 1
-        display_x = vx
-        display_y = max_dim1 - vy
+        # Display coords after rot90 mapping
+        display_x = pts_vox_near[:, dims[0]]
+        display_y = max_dim1 - pts_vox_near[:, dims[1]]
 
-        ax.plot(display_x, display_y, color="orange", alpha=0.3, linewidth=0.8)
+        # Per-segment RGB directional colour: |Δworld| normalised → (R, G, B)
+        diffs = np.diff(pts_world_near, axis=0)          # shape (n-1, 3)
+        norms = np.linalg.norm(diffs, axis=1, keepdims=True)
+        norms = np.where(norms < 1e-6, 1.0, norms)
+        dir_rgb = np.abs(diffs / norms)                  # each row in [0,1]³
+
+        for i in range(len(pts_world_near) - 1):
+            all_segments.append(
+                [(display_x[i], display_y[i]), (display_x[i + 1], display_y[i + 1])]
+            )
+            all_colors.append((*dir_rgb[i], 0.4))        # RGBA
+
+    if all_segments:
+        lc = LineCollection(all_segments, colors=all_colors, linewidths=0.8)
+        ax.add_collection(lc)
